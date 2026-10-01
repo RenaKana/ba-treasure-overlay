@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BA 寻宝助手",
+  "version": "0.1.0",
+  "identifier": "local.ba.treasure.overlay",
+  "build": {
+    "beforeDevCommand": "pnpm dev --host 127.0.0.1 --port 1420",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      { "label": "main", "title": "BA 寻宝助手", "width": 800, "height": 840, "minWidth": 640, "minHeight": 600 },
+      { "label": "overlay", "title": "BA 概率叠加", "url": "index.html?overlay=1", "width": 900, "height": 500, "transparent": true, "decorations": false, "shadow": false, "alwaysOnTop": true, "skipTaskbar": true, "visible": false, "focus": false, "resizable": false },
+      { "label": "refresh", "title": "BA 刷新概率", "url": "index.html?refresh=1", "width": 40, "height": 40, "transparent": true, "decorations": false, "shadow": false, "alwaysOnTop": true, "skipTaskbar": true, "visible": false, "focus": false, "resizable": false }
+    ],
+    "security": { "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; connect-src ipc: http://ipc.localhost 'self'; worker-src 'self' blob:" }
+  },
+  "bundle": { "active": false }
+}

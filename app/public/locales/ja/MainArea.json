@@ -1,0 +1,5 @@
+{
+  "reset_confirm": "現在の入力内容はリセットされます。よろしいですか？",
+  "item_preset_applied_toast": "{{presetLabel}}の備品プリセットを適用しました",
+  "item_preset_applied_with_unknown_quantity_toast": "{{presetLabel}}の備品プリセットを適用しました。数量は未反映のため、手動入力してください"
+}

@@ -1,0 +1,4 @@
+# Windows x64 / Python 3.12; windows-capture uses the published cp39-abi3 wheel.
+windows-capture==2.0.1
+numpy==2.2.6
+opencv-python==4.12.0.88

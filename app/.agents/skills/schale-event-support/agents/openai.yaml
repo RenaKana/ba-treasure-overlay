@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Schale Event Support'
+  short_description: '新規・復刻イベントの備品プリセット対応を安全に進める'
+  default_prompt: 'Use $schale-event-support to update this repository for the next inventory event.'

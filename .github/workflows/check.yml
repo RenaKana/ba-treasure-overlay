@@ -1,0 +1,52 @@
+name: Windows source checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+      - name: Install frontend dependencies without modifying hooks or manifests
+        run: corepack pnpm@10.11.0 install --frozen-lockfile --ignore-scripts
+      - name: Prepare Rust and WASM tools
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --target wasm32-unknown-unknown
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup override set 1.98.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo install wasm-pack --version 0.15.0 --locked
+      - name: Frontend logic and event presets
+        run: |
+          corepack pnpm@10.11.0 test:desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          corepack pnpm@10.11.0 test:event-presets
+      - name: Rust solver tests
+        run: cargo test --release --locked --manifest-path wasm/Cargo.toml
+      - name: Build WASM
+        working-directory: app/wasm
+        run: wasm-pack build --target web --out-dir ../public/wasm --locked
+      - name: WASM smoke checks
+        run: |
+          node scripts/check-wasm.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node wasm/tests/snapshot-smoke.mjs
+      - name: Build desktop executable
+        run: corepack pnpm@10.11.0 desktop:build
+      - name: Compile native tests (execution requires desktop OCR)
+        run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --no-run
