@@ -260,6 +260,10 @@ fn extract(card: RgbaImage) -> Option<CardTemplate> {
         fingerprint: format!("{hash:016x}"),
     })
 }
+pub(super) fn finished_cards(frame: &RgbaImage, viewport: Rect) -> [bool; 3] {
+    std::array::from_fn(|i| finish_banner(&read_card(frame, viewport, i)))
+}
+
 pub(super) fn update_cards(
     frame: &RgbaImage,
     viewport: Rect,

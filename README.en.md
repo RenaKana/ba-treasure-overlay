@@ -22,6 +22,8 @@ Runs on **64-bit Windows 10 / 11**. See the [detailed user guide](app/docs/deskt
 3. Switch back to the game and click the refresh button beside the board to view the probability hints.
 4. Refresh after each tile is opened. With automatic mode enabled, results update on their own.
 
+For best results, connect and refresh before opening the first tile of each round. The assistant remembers the initial appearance of all 45 tiles and compares later changes at each position. You can still connect mid-round, but unfamiliar tile styles may need a reference from the start of the round.
+
 Use the control at the top of the assistant window to change the interface language and zoom level. The zoom setting is saved and affects only the assistant window; it does not change the overlay coordinates on the game board.
 
 Probabilities are for reference and do not guarantee a hit every time. If the image cannot be recognized, or an item has not been fully revealed, the assistant pauses its recommendations. If the recognized board differs from the actual game, correct it manually and refresh again. Image recognition and probability calculations run locally, and the assistant does not open tiles automatically.

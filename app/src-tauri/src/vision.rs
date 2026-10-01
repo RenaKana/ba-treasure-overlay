@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 #[path = "vision_dynamic.rs"]
 mod dynamic;
 use dynamic::CardTemplate;
+#[path = "vision_initial.rs"]
+mod initial;
 
 pub(crate) const COLS: usize = 9;
 pub(crate) const ROWS: usize = 5;
@@ -38,6 +40,9 @@ pub struct PlacementConstraint {
 }
 
 pub struct Analysis {
+    /// Current-frame full-cover evidence for round reset only. It must not
+    /// turn a mismatch against a learned cell into a covered-cell label.
+    pub fresh_initial_grid: bool,
     pub completed_objects: Vec<CompletedObject>,
     pub candidate_constraints: Vec<PlacementConstraint>,
     pub reference_ready: [bool; 3],
@@ -195,6 +200,7 @@ struct Correction {
 
 pub struct Recognizer {
     references: Option<References>,
+    initial_covers: initial::InitialCovers,
     last_board: Option<Rect>,
     last_size: (u32, u32),
     last_cells: Vec<String>,
@@ -215,6 +221,7 @@ impl Recognizer {
     pub fn new() -> Self {
         Self {
             references: References::load(),
+            initial_covers: initial::InitialCovers::default(),
             last_board: None,
             last_size: (0, 0),
             last_cells: Vec::new(),
@@ -242,9 +249,10 @@ impl Recognizer {
         remaining: Option<u32>,
         remaining_counts: [Option<u32>; 3],
     ) -> Analysis {
+        let content = self.locate_content(frame);
         self.analyze_internal(
             frame,
-            locate_content(frame),
+            content,
             board_override,
             remaining,
             remaining_counts,
@@ -262,9 +270,10 @@ impl Recognizer {
         remaining: Option<u32>,
         remaining_counts: [Option<u32>; 3],
     ) -> Analysis {
+        let content = self.locate_content(frame);
         self.analyze_internal(
             frame,
-            locate_content(frame),
+            content,
             board_override,
             remaining,
             remaining_counts,
@@ -301,15 +310,18 @@ impl Recognizer {
         completed_only: bool,
     ) -> Analysis {
         let Some(viewport) = content.and_then(|rect| content_rect(frame, rect)) else {
+            self.initial_covers.clear_pending();
             return self.absent("画面尺寸不足或不是横向游戏画面", vec![[0, 0]; 3]);
         };
         let (shapes, card_anchors) = read_shapes(frame, viewport);
         if card_anchors < 2 || !round_header_present(frame, viewport) {
+            self.initial_covers.clear_pending();
             return self.absent("当前画面不是可识别的寻宝棋盘，或棋盘被弹窗遮挡", shapes);
         }
         let expected = expected_board(viewport);
         let seed = if let Some(normalized) = board_override {
             let Some(manual) = manual_board(frame, normalized, expected) else {
+                self.initial_covers.clear_pending();
                 return self.absent("手动棋盘范围不符合当前 9×5 方格区域", shapes);
             };
             manual
@@ -341,6 +353,7 @@ impl Recognizer {
             }
         }
         let Some(references) = self.references.as_ref() else {
+            self.initial_covers.clear_pending();
             return self.absent("本地棋盘图像参考无法解码", shapes);
         };
         if board.x < 0.0
@@ -348,18 +361,55 @@ impl Recognizer {
             || board.x + board.w > frame.width() as f64
             || board.y + board.h > frame.height() as f64
         {
+            self.initial_covers.clear_pending();
             return self.absent("棋盘范围超出当前游戏画面", shapes);
         }
 
-        let mut pixels = Vec::with_capacity(CELL_COUNT);
+        let pixels: Vec<_> = (0..CELL_COUNT)
+            .map(|index| Patch::read(frame, board.cell(index)))
+            .collect();
+        // The count only permits learning; every cell must independently look
+        // closed and stay stable across observations. Never learn from Finish.
+        let initial_eligible = remaining == Some(CELL_COUNT as u32)
+            && card_anchors == 3
+            && shapes.iter().all(|&[w, h]| {
+                w > 0
+                    && h > 0
+                    && ((w <= COLS as u32 && h <= ROWS as u32)
+                        || (h <= COLS as u32 && w <= ROWS as u32))
+            })
+            && dynamic::finished_cards(frame, viewport).iter().all(|f| !f)
+            && !pixels.iter().enumerate().any(|(index, patch)| {
+                selected_cover_present(
+                    frame,
+                    board.cell(index),
+                    patch,
+                    references,
+                    viewport.w / 1920.0,
+                )
+            });
+        // A different cover arrangement must still let the host notice the
+        // next round when its number is unreadable. This is reset evidence,
+        // never permission to overwrite references or relabel changed tiles.
+        let fresh_initial_grid = self.initial_covers.is_ready()
+            && initial_eligible
+            && initial::plausible_initial_grid(&pixels);
+        self.initial_covers.observe(&pixels, initial_eligible);
         let mut cells = Vec::with_capacity(CELL_COUNT);
-        for index in 0..CELL_COUNT {
+        for (index, patch) in pixels.iter().enumerate() {
             let tile = board.cell(index);
-            let patch = Patch::read(frame, tile);
-            let hidden = references.hidden_error(&patch);
-            let cell = if (hidden.mean < 15.0 && hidden.large_fraction < 0.09)
-                || ordinary_cover_registered(frame, tile, &patch, references, viewport.w / 1920.0)
-                || selected_cover_present(frame, tile, &patch, references, viewport.w / 1920.0)
+            let hidden = references.hidden_error(patch);
+            let cell = if self.initial_covers.matches(index, patch)
+                || (!self.initial_covers.is_ready()
+                    && ((hidden.mean < 15.0 && hidden.large_fraction < 0.09)
+                        || ordinary_cover_registered(
+                            frame,
+                            tile,
+                            patch,
+                            references,
+                            viewport.w / 1920.0,
+                        )))
+                || selected_cover_present(frame, tile, patch, references, viewport.w / 1920.0)
             {
                 "unknown"
             } else if ice_present(frame, tile, references, viewport.w / 1920.0) {
@@ -367,7 +417,6 @@ impl Recognizer {
             } else {
                 "uncertain"
             };
-            pixels.push(patch);
             cells.push(cell.to_owned());
         }
         // Covers independently confirmed by the fixed bevel/check structure
@@ -380,6 +429,7 @@ impl Recognizer {
             .collect();
         for (i, p) in pixels.iter().enumerate() {
             if cells[i] == "uncertain"
+                && !self.initial_covers.is_ready()
                 && visible_covers
                     .iter()
                     .any(|r| ordinary_cover_contour_error(p, r).is_some())
@@ -395,7 +445,9 @@ impl Recognizer {
         // and the full counter/uncertainty checks below and in the capture host.
         let required_covers = remaining.unwrap_or(3).min(3) as usize;
         if cells.iter().filter(|cell| *cell == "unknown").count() < required_covers {
-            return self.absent("方格纹理与 9×5 棋盘位置无法相互验证", shapes);
+            let mut result = self.absent("方格纹理与 9×5 棋盘位置无法相互验证", shapes);
+            result.fresh_initial_grid = fresh_initial_grid;
+            return result;
         }
         let finish = dynamic::update_cards(frame, viewport, &mut self.templates);
         let reference_ready = std::array::from_fn(|i| self.templates[i].is_some());
@@ -418,7 +470,9 @@ impl Recognizer {
         // cells must independently exhibit a known, observed tile texture.
         let completed = cells.iter().filter(|cell| *cell == "completed").count();
         if hidden + empty + completed < 9 {
-            return self.absent("棋盘方格被大面积遮挡或当前主题尚未验证", shapes);
+            let mut result = self.absent("棋盘方格被大面积遮挡或当前主题尚未验证", shapes);
+            result.fresh_initial_grid = fresh_initial_grid;
+            return result;
         }
 
         // Count rises and tiles returning to their covered state indicate a
@@ -472,6 +526,7 @@ impl Recognizer {
             )
         };
         Analysis {
+            fresh_initial_grid,
             board: Some(board.normalized(frame)),
             cells,
             present: counter_consistent,
@@ -518,6 +573,7 @@ impl Recognizer {
     }
 
     pub fn reset(&mut self) {
+        self.initial_covers.reset();
         self.last_board = None;
         self.last_size = (0, 0);
         self.last_cells.clear();
@@ -531,6 +587,15 @@ impl Recognizer {
         }
     }
 
+    /// Use this round's observed covers when locating a partially opened board.
+    pub fn locate_content(&mut self, frame: &RgbaImage) -> Option<[f64; 4]> {
+        let content = locate_content_with_covers(frame, Some(&self.initial_covers));
+        if content.is_none() {
+            self.initial_covers.clear_pending();
+        }
+        content
+    }
+
     fn absent(&mut self, message: &str, shapes: Vec<[u32; 2]>) -> Analysis {
         // A modal or failed frame must not erase the round's card templates.
         self.last_board = None;
@@ -538,6 +603,7 @@ impl Recognizer {
         self.last_cells.clear();
         self.corrections.clear();
         Analysis {
+            fresh_initial_grid: false,
             board: None,
             cells: vec!["uncertain".to_owned(); CELL_COUNT],
             present: false,
@@ -558,6 +624,13 @@ impl Recognizer {
 /// Frame borders are proposals only: independent header, card masks and board
 /// textures must agree before OCR or recognition receives this rectangle.
 pub fn locate_content(frame: &RgbaImage) -> Option<[f64; 4]> {
+    locate_content_with_covers(frame, None)
+}
+
+fn locate_content_with_covers(
+    frame: &RgbaImage,
+    initial_covers: Option<&initial::InitialCovers>,
+) -> Option<[f64; 4]> {
     if frame.width() == 0 || frame.height() == 0 {
         return None;
     }
@@ -584,7 +657,9 @@ pub fn locate_content(frame: &RgbaImage) -> Option<[f64; 4]> {
             } else {
                 references.hidden_error(&patch)
             };
-            let cell = if hidden.mean < 15.0 && hidden.large_fraction < 0.09 {
+            let cell = if (hidden.mean < 15.0 && hidden.large_fraction < 0.09)
+                || initial_covers.is_some_and(|covers| covers.matches(index, &patch))
+            {
                 "unknown"
             } else {
                 "uncertain"
@@ -593,6 +668,12 @@ pub fn locate_content(frame: &RgbaImage) -> Option<[f64; 4]> {
             cells.push(cell.to_owned());
         }
         if cells.iter().filter(|c| c.as_str() == "unknown").count() >= 9 {
+            return true;
+        }
+        // This only admits a candidate to same-frame OCR. Committing all 45
+        // references additionally requires count=45, valid cards, no Finish,
+        // and consecutive stable observations in analyze_internal.
+        if anchors == 3 && initial::plausible_initial_grid(&pixels) {
             return true;
         }
         // A flat popup has no texture to register. Reject before the costly

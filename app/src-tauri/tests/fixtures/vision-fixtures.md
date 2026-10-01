@@ -15,6 +15,26 @@ pass. The derived all-purple-cover test preserves all 45 covered labels.
 These are embedded UI references; it would be incorrect to claim that
 production contains no captured reference pixels at all.
 
+An additional per-round path learns all 45 covers from their own positions.
+It requires same-frame remaining=45, three valid card shapes, no Finish,
+closed rectangular edges in every cell, and two stable observations. This
+bootstrap checks RGB edge continuity without an embedded color or bevel
+template. Each subsequent tile is compared only with its own initial patch;
+whole-patch similarity, local new-pixel checks and frame edges prevent small
+revealed fragments from being silently treated as covers. Confirmed cover
+references survive same-round resizing and temporary occlusion, but reset
+with the round/session/calibration. They are memory-only and are not new
+distributed image assets. Mid-round startup retains the embedded structural
+fallback; selection markers retain their existing recognition path.
+
+`vision_initial_board.rs` exercises a generated 45-cell skin on a real HUD,
+per-position identity, a small inserted fragment, missing/stale counts,
+Finish, occlusion, resizing, and reset. The module tests also replay real
+MuMu/PC initial grids and 960–3840-pixel resampling. A separate host test
+confirms two full-cover observations reset the round when the round number
+is unreadable and the new covers differ from the cached ones. These are
+replay/synthetic checks, not acceptance of another live event.
+
 There are **no embedded item/card/fragment atlases or ice/background images**
 in production. The old `vision-item*-*.png` and `vision-empty-*.png` files
 remain historical provenance, not runtime references.

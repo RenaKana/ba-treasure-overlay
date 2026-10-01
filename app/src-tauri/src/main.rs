@@ -1317,6 +1317,12 @@ fn observe_full_cover(s: &mut Session, all_covered: bool) -> bool {
         false
     }
 }
+fn full_cover_observed(analysis: &vision::Analysis, remaining: Option<u32>) -> bool {
+    remaining == Some(45)
+        && analysis.finish.iter().all(|f| !f)
+        && (analysis.fresh_initial_grid
+            || (analysis.present && analysis.cells.iter().all(|c| c == "unknown")))
+}
 fn update_card_items(
     s: &mut Session,
     shapes: &[[u32; 2]],
@@ -1677,7 +1683,17 @@ impl GraphicsCaptureApiHandler for Capturer {
             return Err("无效的 WGC RGBA 帧".into());
         };
         let work_started = Instant::now();
-        let content = vision::locate_content(&img);
+        let locator = {
+            let s = state.session.lock().unwrap();
+            if !capture_current(&s, self.id, self.generation, self.hwnd)
+                || s.revision != expected_revision
+                || !frame_requested(&s)
+            {
+                return Ok(());
+            }
+            Arc::clone(&s.recognizer)
+        };
+        let content = locator.lock().unwrap().locate_content(&img);
         let (content, expected_revision, work_window) = {
             let mut s = state.session.lock().unwrap();
             if !capture_current(&s, self.id, self.generation, self.hwnd) || s.revision != expected_revision || !frame_requested(&s) {
@@ -1770,10 +1786,7 @@ impl GraphicsCaptureApiHandler for Capturer {
             }
             s.last_frame_ms = now_ms();
             s.analysis_ms = work_started.elapsed().as_millis() as u64;
-            let all_covered = analysis.present
-                && self.hud.remaining == Some(45)
-                && analysis.cells.iter().all(|c| c == "unknown")
-                && analysis.finish.iter().all(|f| !f);
+            let all_covered = full_cover_observed(&analysis, self.hud.remaining);
             if observe_full_cover(&mut s, all_covered) {
                 // Do not publish analysis built with the previous round's cache.
                 let mut snap = changed_snapshot(&mut s, "searching", "新轮次，重新读取卡片");
@@ -2530,6 +2543,40 @@ mod session_tests {
         );
         assert!(s.item_correction.is_none());
         assert_eq!(s.items[1].remaining_count, 0);
+    }
+
+    #[test]
+    fn changed_initial_covers_reset_the_round_when_round_ocr_is_missing() {
+        let frame = image::load_from_memory(include_bytes!("../tests/fixtures/vision-initial.png"))
+            .unwrap().to_rgba8();
+        let mut s = Session::default();
+        for _ in 0..2 {
+            assert!(s.recognizer.lock().unwrap().analyze(&frame, None, Some(45)).present);
+        }
+        s.seen_opened = true;
+        s.remaining = Some(44);
+        let old_recognizer = Arc::clone(&s.recognizer);
+        let mut next = frame.clone();
+        for y in 346..866 {
+            for x in 910..1846 {
+                let p = next.get_pixel_mut(x, y);
+                for channel in 0..3 {
+                    p[channel] = 255 - p[channel];
+                }
+            }
+        }
+        for expected_reset in [false, true] {
+            observe_round(&mut s, None);
+            let analysis = old_recognizer.lock().unwrap().analyze(&next, None, Some(45));
+            assert!(analysis.fresh_initial_grid);
+            assert!(!full_cover_observed(&analysis, None));
+            assert!(!full_cover_observed(&analysis, Some(44)));
+            assert_eq!(observe_full_cover(&mut s, full_cover_observed(&analysis, Some(45))), expected_reset);
+        }
+        assert_eq!(s.round_epoch, 1);
+        assert!(!Arc::ptr_eq(&old_recognizer, &s.recognizer));
+        assert!(!s.seen_opened);
+        assert_eq!(s.remaining, None);
     }
 
     #[test]

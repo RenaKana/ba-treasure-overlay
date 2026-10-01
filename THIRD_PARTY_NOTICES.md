@@ -15,6 +15,8 @@
 - `app/src-tauri/tests/fixtures/vision-hidden-tiles.png`
 - `app/src-tauri/tests/fixtures/vision-selected-cover.png`
 
+识别时还会从当前游戏画面临时提取每轮开局的 45 格参考，仅保存在本机会话内存中，不写入磁盘或上传。这项功能没有移除上述两张内置参考，也不改变现有截图和图标的权利归属。
+
 来源和用途见 [vision-fixtures.md](app/src-tauri/tests/fixtures/vision-fixtures.md)、[PC 截图来源](app/src-tauri/tests/fixtures/pc-clients-provenance.md)、[4:3 截图来源](app/src-tauri/tests/fixtures/pc-global-four-three-provenance.md) 及同目录其他 provenance 文件。这些文件证明样本来源和测试用途，不等于权利人的再分发许可。
 
 `app/src-tauri/icons/icon.ico` 未附独立来源或许可记录。当前 Tauri 构建默认将它编译进 Windows 资源，即使关闭安装包生成也会使用，不能直接删除。公开源码和二进制前，应核实截图、嵌入参考与图标的可再分发依据；需要替换时，应重新运行相应构建与识别回归。本项目不声称得到游戏开发商或发行商的认可。
