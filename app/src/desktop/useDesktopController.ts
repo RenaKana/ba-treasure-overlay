@@ -5,6 +5,8 @@ import type {
   CaptureState,
   CaptureVersion,
   CellState,
+  CoverReferenceInfo,
+  CoverSelection,
   ItemSpec,
   ObservedCell,
   OverlayResult,
@@ -77,6 +79,9 @@ export function useDesktopController() {
   const [solverPhase, setSolverPhase] = useState<SolverPhase>('waiting');
   const [solverMessage, setSolverMessage] = useState('');
   const [result, setResult] = useState<SolverResponse | null>(null);
+  const [coverReference, setCoverReference] = useState<CoverReferenceInfo>({ count: 0, images: [] });
+  const [coverSelection, setCoverSelection] = useState<CoverSelection | null>(null);
+  const coverSelectionRef = useRef<CoverSelection | null>(null);
 
   const captureRef = useRef<CaptureState | null>(null);
   const sessionRef = useRef<number | null>(null);
@@ -92,6 +97,15 @@ export function useDesktopController() {
   const barrierRef = useRef<string | null>(null);
   const filtersRef = useRef(filters);
   const busyRef = useRef('');
+
+  useEffect(() => {
+    if (!native) return;
+    let disposed = false;
+    void invoke<CoverReferenceInfo>('get_cover_reference').then((info) => {
+      if (!disposed) setCoverReference(info);
+    }).catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
+    return () => { disposed = true; };
+  }, [native]);
 
   const reportSolverFailure = useCallback((version: CaptureVersion, message: string) => {
     if (!native || !isCurrentResult(version, captureRef.current)) return;
@@ -151,6 +165,8 @@ export function useDesktopController() {
       const newSession = previous?.session_id !== payload.session_id;
       const newRound = previous?.round_epoch !== payload.round_epoch;
       if (newSession || newRound) {
+        coverSelectionRef.current = null;
+        setCoverSelection(null);
         dirtyRef.current = false;
         calibratingRef.current = false;
         setDirty(false);
@@ -201,6 +217,7 @@ export function useDesktopController() {
       response.precision === null ||
       dirtyRef.current ||
       calibratingRef.current ||
+      coverSelectionRef.current !== null ||
       barrierRef.current !== null
     ) return;
 
@@ -227,6 +244,7 @@ export function useDesktopController() {
         !isCurrentResult(response, captureRef.current) ||
         dirtyRef.current ||
         calibratingRef.current ||
+        coverSelectionRef.current !== null ||
         barrierRef.current !== null
       ) return;
       await invoke('set_overlay_visible', { visible: overlayVisibleRef.current });
@@ -239,7 +257,7 @@ export function useDesktopController() {
     });
   }, [native, reportSolverFailure]);
 
-  const jobKey = !dirty && !calibrating && !awaitingChange && capturing
+  const jobKey = !dirty && !calibrating && coverSelection === null && !awaitingChange && capturing
     ? calculationKey(capture)
     : null;
 
@@ -382,6 +400,8 @@ export function useDesktopController() {
     barrierRef.current = null;
     dirtyRef.current = false;
     calibratingRef.current = false;
+    coverSelectionRef.current = null;
+    setCoverSelection(null);
     setCapture(null);
     setDirty(false);
     setCalibrating(false);
@@ -416,6 +436,8 @@ export function useDesktopController() {
     setBusy('stop_capture');
     try {
       await invoke('stop_capture');
+      coverSelectionRef.current = null;
+      setCoverSelection(null);
       captureRef.current = null;
       sessionRef.current = null;
       barrierRef.current = null;
@@ -471,6 +493,47 @@ export function useDesktopController() {
     await mutate('correct_cell', { index, cell });
   }
 
+  async function changeCoverReference(command: 'begin_cover_selection' | 'save_cover_selection' | 'cancel_cover_selection' | 'clear_cover_reference', indices?: number[]) {
+    if (!native || busyRef.current !== '') return;
+    const snapshot = captureRef.current;
+    const selection = coverSelectionRef.current;
+    if (command === 'begin_cover_selection' && (!capturing || snapshot === null)) {
+      setError('请先刷新游戏画面，再选择未翻开样本');
+      return;
+    }
+    if ((command === 'save_cover_selection' || command === 'cancel_cover_selection') && selection === null) return;
+    invalidate();
+    busyRef.current = command;
+    setBusy(command);
+    setError('');
+    try {
+      if (command === 'begin_cover_selection') {
+        const next = await invoke<CoverSelection>(command, {
+          expectedSession: snapshot!.session_id,
+          expectedRoundEpoch: snapshot!.round_epoch,
+          expectedRevision: snapshot!.revision,
+        });
+        coverSelectionRef.current = next;
+        setCoverSelection(next);
+      } else if (command === 'cancel_cover_selection') {
+        await invoke(command, { token: selection!.token });
+        coverSelectionRef.current = null;
+        setCoverSelection(null);
+      } else {
+        const info = await invoke<CoverReferenceInfo>(command,
+          command === 'save_cover_selection' ? { token: selection!.token, indices } : undefined);
+        setCoverReference(info);
+        coverSelectionRef.current = null;
+        setCoverSelection(null);
+      }
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      busyRef.current = '';
+      setBusy('');
+    }
+  }
+
   async function resetRound() {
     dirtyRef.current = false;
     calibratingRef.current = false;
@@ -524,7 +587,7 @@ export function useDesktopController() {
   }
 
   const probabilities = result !== null && isCurrentResult(result, capture) &&
-    !dirty && !calibrating && !awaitingChange
+    !dirty && !calibrating && coverSelection === null && !awaitingChange
     ? selectedProbabilities(result.probs, filterMask(filters))
     : null;
   const inferredPlacements = probabilities !== null && result !== null
@@ -540,5 +603,10 @@ export function useDesktopController() {
     clearError: () => setError(''), solverPhase, solverMessage, result, probabilities, inferredPlacements,
     startCapture, stopCapture, setUpdateMode, refreshCapture,
     setPaused: (paused: boolean) => mutate('set_paused', { paused }),
+    coverReference, coverSelection,
+    beginCoverSelection: () => changeCoverReference('begin_cover_selection'),
+    saveCoverSelection: (indices: number[]) => changeCoverReference('save_cover_selection', indices),
+    cancelCoverSelection: () => changeCoverReference('cancel_cover_selection'),
+    clearCoverReference: () => changeCoverReference('clear_cover_reference'),
   };
 }

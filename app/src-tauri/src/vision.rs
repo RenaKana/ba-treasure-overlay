@@ -9,13 +9,16 @@ use serde::{Deserialize, Serialize};
 #[path = "vision_dynamic.rs"]
 mod dynamic;
 use dynamic::CardTemplate;
+#[path = "cover_reference.rs"]
+pub mod cover_reference;
 #[path = "vision_initial.rs"]
 mod initial;
+use cover_reference::CoverSample;
 
 pub(crate) const COLS: usize = 9;
 pub(crate) const ROWS: usize = 5;
 const CELL_COUNT: usize = COLS * ROWS;
-const PATCH_SIZE: usize = 32;
+const PATCH_SIZE: usize = cover_reference::SAMPLE_SIZE;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GridPlacement {
@@ -43,6 +46,9 @@ pub struct Analysis {
     /// Current-frame full-cover evidence for round reset only. It must not
     /// turn a mismatch against a learned cell into a covered-cell label.
     pub fresh_initial_grid: bool,
+    /// Hint only: positive initial-board geometry confirms unopened cells that
+    /// the fixed player samples cannot explain. It never changes references.
+    pub manual_cover_mismatch: bool,
     pub completed_objects: Vec<CompletedObject>,
     pub candidate_constraints: Vec<PlacementConstraint>,
     pub reference_ready: [bool; 3],
@@ -201,6 +207,7 @@ struct Correction {
 pub struct Recognizer {
     references: Option<References>,
     initial_covers: initial::InitialCovers,
+    manual_covers: Vec<Patch>,
     last_board: Option<Rect>,
     last_size: (u32, u32),
     last_cells: Vec<String>,
@@ -222,6 +229,7 @@ impl Recognizer {
         Self {
             references: References::load(),
             initial_covers: initial::InitialCovers::default(),
+            manual_covers: Vec::new(),
             last_board: None,
             last_size: (0, 0),
             last_cells: Vec::new(),
@@ -231,6 +239,16 @@ impl Recognizer {
             last_hidden: 0,
             templates: std::array::from_fn(|_| None),
         }
+    }
+
+    pub fn with_cover_samples(samples: &[CoverSample]) -> Self {
+        let mut recognizer = Self::new();
+        recognizer.manual_covers = samples
+            .iter()
+            .filter(|s| s.valid())
+            .map(|s| Patch::from_rgb(s.rgb.clone()))
+            .collect();
+        recognizer
     }
 
     pub fn analyze(
@@ -394,13 +412,20 @@ impl Recognizer {
         let fresh_initial_grid = self.initial_covers.is_ready()
             && initial_eligible
             && initial::plausible_initial_grid(&pixels);
-        self.initial_covers.observe(&pixels, initial_eligible);
+        if self.manual_covers.is_empty() {
+            self.initial_covers.observe(&pixels, initial_eligible);
+        }
         let mut cells = Vec::with_capacity(CELL_COUNT);
         for (index, patch) in pixels.iter().enumerate() {
             let tile = board.cell(index);
             let hidden = references.hidden_error(patch);
-            let cell = if self.initial_covers.matches(index, patch)
-                || (!self.initial_covers.is_ready()
+            let cell = if self
+                .manual_covers
+                .iter()
+                .any(|r| initial::manual_reference_matches(r, patch))
+                || (self.manual_covers.is_empty() && self.initial_covers.matches(index, patch))
+                || (self.manual_covers.is_empty()
+                    && !self.initial_covers.is_ready()
                     && ((hidden.mean < 15.0 && hidden.large_fraction < 0.09)
                         || ordinary_cover_registered(
                             frame,
@@ -429,6 +454,7 @@ impl Recognizer {
             .collect();
         for (i, p) in pixels.iter().enumerate() {
             if cells[i] == "uncertain"
+                && self.manual_covers.is_empty()
                 && !self.initial_covers.is_ready()
                 && visible_covers
                     .iter()
@@ -512,9 +538,15 @@ impl Recognizer {
         self.last_remaining = remaining;
         self.last_hidden = hidden;
         self.last_cells = cells.clone();
+        let manual_cover_mismatch = !self.manual_covers.is_empty()
+            && unresolved > 0
+            && initial_eligible
+            && initial::plausible_initial_grid(&pixels);
         self.last_pixels = pixels;
         let message = if !counter_consistent {
             "剩余格数与已观察的格子状态不一致，请等待画面稳定或检查计数".to_owned()
+        } else if manual_cover_mismatch {
+            "未翻开样本不匹配，请检查画面或更新样本".to_owned()
         } else if unresolved > 0 {
             format!("有 {unresolved} 格无法从真实像素确认类型，请手动校正")
         } else if remaining.is_none() {
@@ -527,6 +559,7 @@ impl Recognizer {
         };
         Analysis {
             fresh_initial_grid,
+            manual_cover_mismatch,
             board: Some(board.normalized(frame)),
             cells,
             present: counter_consistent,
@@ -589,7 +622,12 @@ impl Recognizer {
 
     /// Use this round's observed covers when locating a partially opened board.
     pub fn locate_content(&mut self, frame: &RgbaImage) -> Option<[f64; 4]> {
-        let content = locate_content_with_covers(frame, Some(&self.initial_covers));
+        let content = locate_content_with_covers(
+            frame,
+            Some(&self.initial_covers),
+            &self.manual_covers,
+            false,
+        );
         if content.is_none() {
             self.initial_covers.clear_pending();
         }
@@ -604,10 +642,15 @@ impl Recognizer {
         self.corrections.clear();
         Analysis {
             fresh_initial_grid: false,
+            manual_cover_mismatch: false,
             board: None,
             cells: vec!["uncertain".to_owned(); CELL_COUNT],
             present: false,
-            message: message.to_owned(),
+            message: if self.manual_covers.is_empty() {
+                message.to_owned()
+            } else {
+                "未翻开样本不匹配，请检查画面或更新样本".to_owned()
+            },
             shapes,
             completed_objects: Vec::new(),
             candidate_constraints: Vec::new(),
@@ -624,12 +667,48 @@ impl Recognizer {
 /// Frame borders are proposals only: independent header, card masks and board
 /// textures must agree before OCR or recognition receives this rectangle.
 pub fn locate_content(frame: &RgbaImage) -> Option<[f64; 4]> {
-    locate_content_with_covers(frame, None)
+    locate_content_with_covers(frame, None, &[], false)
+}
+
+/// Capture proposals are for the player's sample picker only. Passing header
+/// and card geometry here never authorizes OCR, cell labels, or probabilities.
+pub fn sample_cover_candidates(
+    frame: &RgbaImage,
+    content: Option<[f64; 4]>,
+    profile_board: Option<[f64; 4]>,
+) -> Option<Vec<CoverSample>> {
+    let content = content.or_else(|| locate_content_with_covers(frame, None, &[], true))?;
+    let viewport = content_rect(frame, content)?;
+    let expected = expected_board(viewport);
+    let board = if let Some([x, y, w, h]) = profile_board {
+        let region = anchored_viewport(viewport, LayoutAnchor::Center);
+        manual_board(
+            frame,
+            [
+                (region.x + x * region.w) / frame.width() as f64,
+                (region.y + y * region.h) / frame.height() as f64,
+                w * region.w / frame.width() as f64,
+                h * region.h / frame.height() as f64,
+            ],
+            expected,
+        )?
+    } else {
+        expected
+    };
+    Some(
+        (0..CELL_COUNT)
+            .map(|index| CoverSample {
+                rgb: Patch::read(frame, board.cell(index)).rgb,
+            })
+            .collect(),
+    )
 }
 
 fn locate_content_with_covers(
     frame: &RgbaImage,
     initial_covers: Option<&initial::InitialCovers>,
+    manual_covers: &[Patch],
+    sampling_only: bool,
 ) -> Option<[f64; 4]> {
     if frame.width() == 0 || frame.height() == 0 {
         return None;
@@ -646,6 +725,9 @@ fn locate_content_with_covers(
         if anchors < 2 {
             return false;
         }
+        if sampling_only {
+            return anchors == 3 && shapes.iter().all(|s| s[0] > 0 && s[1] > 0);
+        }
         let board = expected_board(rect);
         let mut pixels = Vec::with_capacity(CELL_COUNT);
         let mut cells = Vec::with_capacity(CELL_COUNT);
@@ -657,7 +739,10 @@ fn locate_content_with_covers(
             } else {
                 references.hidden_error(&patch)
             };
-            let cell = if (hidden.mean < 15.0 && hidden.large_fraction < 0.09)
+            let cell = if manual_covers
+                .iter()
+                .any(|r| initial::manual_reference_matches(r, &patch))
+                || (manual_covers.is_empty() && hidden.mean < 15.0 && hidden.large_fraction < 0.09)
                 || initial_covers.is_some_and(|covers| covers.matches(index, &patch))
             {
                 "unknown"

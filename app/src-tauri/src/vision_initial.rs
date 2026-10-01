@@ -46,6 +46,16 @@ const MATCH_PHASE_OFFSETS: [f64; 3] = [0.0, -0.25, 0.25];
 const MATCH_AA_WEIGHTS: [f64; 3] = [0.05, 0.9, 0.05];
 const COMPARE_BEGIN: usize = 1;
 const COMPARE_END: usize = PATCH_SIZE - 1;
+// A manually selected appearance is shared across positions. The outer sample
+// ring can contain a neighboring tile under the fixed board geometry, so keep
+// this comparison inside the tile, including its bevel at normalized x/y=2.
+const MANUAL_COMPARE_BEGIN: usize = 2;
+const MANUAL_COMPARE_END: usize = PATCH_SIZE - 2;
+// Cross-position raster phases vary by up to one normalized sample. A fixed
+// three-tap sampling filter accounts for point-sampled UI edges and DPI
+// resampling; no color/gain fit or pixel-error threshold is relaxed.
+const MANUAL_PHASE_OFFSETS: [f64; 9] = [0.0, -0.25, 0.25, -0.5, 0.5, -0.75, 0.75, -1.0, 1.0];
+const MANUAL_AA_WEIGHTS: [f64; 3] = [0.2, 0.6, 0.2];
 
 #[derive(Default)]
 pub(super) struct InitialCovers {
@@ -87,27 +97,7 @@ impl InitialCovers {
         let Some(reference) = self.confirmed.as_ref().and_then(|p| p.get(index)) else {
             return false;
         };
-        if !valid_patch(patch) {
-            return false;
-        }
-        // Keep the local-artwork guard against the original pixels. Smoothing
-        // or registering a reference must never explain away a new fragment.
-        if !novel_pixels_within(reference, patch, MATCH_MAX_NOVEL_PIXEL) {
-            return false;
-        }
-        if !pixel_match(reference, patch) {
-            let filtered = filtered_reference(reference);
-            if !MATCH_PHASE_OFFSETS.iter().any(|&dy| {
-                MATCH_PHASE_OFFSETS
-                    .iter()
-                    .any(|&dx| pixel_match(&registered_reference(&filtered, dx, dy), patch))
-            }) {
-                return false;
-            }
-        }
-        let old_edges = edge_masks(reference);
-        let new_edges = edge_masks(patch);
-        (0..4).all(|side| expanded(old_edges[side]) & new_edges[side] != 0)
+        reference_matches(reference, patch, true)
     }
 
     pub(super) fn reset(&mut self) {
@@ -122,6 +112,116 @@ impl InitialCovers {
     pub(super) fn is_ready(&self) -> bool {
         self.confirmed.is_some()
     }
+}
+
+/// Player-confirmed samples supply their own positive cover evidence, so they
+/// need pixel agreement but do not require the automatic bootstrap's frame.
+pub(super) fn reference_matches(reference: &Patch, patch: &Patch, require_edges: bool) -> bool {
+    if !valid_patch(reference) || !valid_patch(patch) {
+        return false;
+    }
+    // Keep the local-artwork guard against the original pixels. Smoothing
+    // or registering a reference must never explain away a new fragment.
+    if !novel_pixels_within(reference, patch, MATCH_MAX_NOVEL_PIXEL) {
+        return false;
+    }
+    if !pixel_match(reference, patch) {
+        let filtered = filtered_reference(reference);
+        if !MATCH_PHASE_OFFSETS.iter().any(|&dy| {
+            MATCH_PHASE_OFFSETS
+                .iter()
+                .any(|&dx| pixel_match(&registered_reference(&filtered, dx, dy), patch))
+        }) {
+            return false;
+        }
+    }
+    if !require_edges {
+        return true;
+    }
+    let old_edges = edge_masks(reference);
+    let new_edges = edge_masks(patch);
+    (0..4).all(|side| expanded(old_edges[side]) & new_edges[side] != 0)
+}
+
+/// Fixed player samples may match any position, rather than the same cell's
+/// raster. Register the whole appearance with bounded sampling support. The
+/// local-color guard still uses the aligned original reference, so resampling
+/// cannot invent an arbitrary new item color or learn another appearance.
+pub(super) fn manual_reference_matches(reference: &Patch, patch: &Patch) -> bool {
+    if reference_matches(reference, patch, false) {
+        return true;
+    }
+    if !valid_patch(reference) || !valid_patch(patch) {
+        return false;
+    }
+    let observed = manual_sampling_patch(patch);
+    // This is a superset of the final guard's support: one sample of phase,
+    // one of interpolation, and the existing one-sample local neighborhood.
+    // Reject unrelated colors before trying the bounded whole-tile transforms.
+    if !manual_novel_pixels_within(reference, &observed, 3) {
+        return false;
+    }
+    let filtered = manual_sampling_patch(reference);
+    for dy in MANUAL_PHASE_OFFSETS {
+        for dx in MANUAL_PHASE_OFFSETS {
+            let predicted = registered_reference(&filtered, dx, dy);
+            let error = difference(&predicted, &observed, MANUAL_COMPARE_BEGIN, MANUAL_COMPARE_END);
+            if error.mean <= MATCH_MAX_MEAN
+                && error.medium_fraction <= MATCH_MAX_MEDIUM
+                && error.large_fraction <= MATCH_MAX_LARGE
+                && manual_novel_pixels_within(&registered_reference(reference, dx, dy), &observed, 1)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn manual_sampling_patch(patch: &Patch) -> Patch {
+    let rgb = (0..PATCH_SIZE * PATCH_SIZE)
+        .map(|i| {
+            let x = i % PATCH_SIZE;
+            let y = i / PATCH_SIZE;
+            std::array::from_fn(|c| {
+                let mut value = 0.0;
+                for (dy, wy) in MANUAL_AA_WEIGHTS.iter().enumerate() {
+                    for (dx, wx) in MANUAL_AA_WEIGHTS.iter().enumerate() {
+                        let xx = (x + dx).saturating_sub(1).min(PATCH_SIZE - 1);
+                        let yy = (y + dy).saturating_sub(1).min(PATCH_SIZE - 1);
+                        value += patch.rgb[yy * PATCH_SIZE + xx][c] as f64 * wx * wy;
+                    }
+                }
+                value.round() as u8
+            })
+        })
+        .collect();
+    Patch::from_rgb(rgb)
+}
+
+fn manual_novel_pixels_within(reference: &Patch, observed: &Patch, radius: usize) -> bool {
+    for y in MANUAL_COMPARE_BEGIN..MANUAL_COMPARE_END {
+        for x in MANUAL_COMPARE_BEGIN..MANUAL_COMPARE_END {
+            let mut outside = 0.0;
+            for c in 0..3 {
+                let mut low = u8::MAX;
+                let mut high = u8::MIN;
+                for yy in y.saturating_sub(radius)..=(y + radius).min(PATCH_SIZE - 1) {
+                    for xx in x.saturating_sub(radius)..=(x + radius).min(PATCH_SIZE - 1) {
+                        let value = reference.rgb[yy * PATCH_SIZE + xx][c];
+                        low = low.min(value);
+                        high = high.max(value);
+                    }
+                }
+                let value = observed.rgb[y * PATCH_SIZE + x][c];
+                outside += low.saturating_sub(value) as f64 + value.saturating_sub(high) as f64;
+            }
+            if outside / 3.0 > MATCH_MAX_NOVEL_PIXEL {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Positive geometry evidence for an initial board. Every one of the 45

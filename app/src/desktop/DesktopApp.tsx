@@ -15,6 +15,7 @@ import { useDesktopController } from './useDesktopController.ts';
 import { useRefreshController } from './useRefreshController.ts';
 import { InferenceLayer, OverlayView } from './ProbabilityView.tsx';
 import DesktopZoom from './DesktopZoom.tsx';
+import CoverReferencePicker from './CoverReferencePicker.tsx';
 import { DESKTOP_LOCALES, translateDesktopMessage, useDesktopI18n, type DesktopLocale } from './desktopI18n.ts';
 import './desktop.css';
 
@@ -228,6 +229,7 @@ function ControlWindow() {
     toggleOverlay, filters, toggleFilter, busy, awaitingChange, error, clearError,
     solverPhase, solverMessage, result, probabilities, startCapture, stopCapture, setPaused,
     setUpdateMode, refreshCapture, inferredPlacements, emphasizeBest, toggleEmphasizeBest,
+    coverReference, coverSelection, beginCoverSelection, saveCoverSelection, cancelCoverSelection, clearCoverReference,
   } = controller;
   const [brush, setBrush] = useState<CellState>('empty');
   const cells = capture?.cells.length === BOARD_SIZE ? capture.cells : Array<CellState>(BOARD_SIZE).fill('unknown');
@@ -235,7 +237,7 @@ function ControlWindow() {
   const paused = capture?.status === 'paused';
   const manual = (capture?.update_mode ?? 'manual') === 'manual';
   const refreshing = capture?.refreshing === true;
-  const editingDisabled = busy !== '' || awaitingChange || refreshing;
+  const editingDisabled = busy !== '' || awaitingChange || refreshing || coverSelection !== null;
   const modeDisabled = !native || !capturing || capture === null || editingDisabled || calibrating;
   const confirmed = Boolean(capture?.confirmed && !dirty && validItems(items));
   const uncertainCount = cells.filter((cell) => cell === 'uncertain').length;
@@ -296,6 +298,15 @@ function ControlWindow() {
         <button className="ba-button ba-button-small" type="button" disabled={!native || !capturing} onClick={() => { void toggleOverlay(); }}><Icon name={overlayVisible ? 'eye' : 'hidden'} />{t(overlayVisible ? '隐藏提示' : '显示提示')}</button>
       </div></div>
       <FramePreview capture={capture} calibrating={calibrating} onCalibrate={(rect) => { void calibrate(rect); }} onCancel={toggleCalibration} />
+      <CoverReferencePicker
+        reference={coverReference} selection={coverSelection}
+        disabled={!native || calibrating || awaitingChange || refreshing}
+        canSelect={capturing && Boolean(capture?.frame_url)} busy={busy !== ''}
+        onBegin={() => { void beginCoverSelection(); }}
+        onSave={(indices) => { void saveCoverSelection(indices); }}
+        onCancel={() => { void cancelCoverSelection(); }}
+        onClear={() => { void clearCoverReference(); }}
+      />
       <div className="ba-preview-meta"><span>{capture?.width ? `${capture.width} × ${capture.height}` : '—'}<span className="ba-meta-divider">/</span>{t(capture?.board ? '棋盘已定位' : '等待定位棋盘')}</span><span className="ba-snapshot-meta">{t(manual ? '手动快照' : '自动更新')}<span className="ba-meta-divider">/</span>{refreshedTime}</span><span>{capture?.round !== null && capture?.round !== undefined ? t('第 {{round}} 轮', { round: capture.round }) : t('轮次 —')}<span className="ba-meta-divider">/</span>{t('剩余 {{value}}', { value: capture?.remaining != null && capture.remaining >= 0 ? capture.remaining : '—' })}</span></div>
     </section>
 

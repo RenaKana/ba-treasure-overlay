@@ -77,7 +77,7 @@ test('native and unknown OS diagnostics retain their original details', () => {
 });
 
 test('control, overlay and refresh labels all use the desktop catalog', () => {
-  for (const filename of ['DesktopApp.tsx', 'ProbabilityView.tsx', 'DesktopZoom.tsx']) {
+  for (const filename of ['DesktopApp.tsx', 'ProbabilityView.tsx', 'DesktopZoom.tsx', 'CoverReferencePicker.tsx']) {
     const source = readFileSync(new URL(filename, import.meta.url), 'utf8');
     const tree = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     function visit(node) {

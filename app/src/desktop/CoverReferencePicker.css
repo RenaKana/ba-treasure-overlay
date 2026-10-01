@@ -1,0 +1,133 @@
+.ba-cover-reference {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--ba-line);
+}
+
+.ba-cover-reference-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.ba-cover-reference-summary > strong,
+.ba-cover-selection-heading > strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ba-cover-reference-status,
+.ba-cover-selection-heading > span {
+  font-size: 11px;
+  color: var(--ba-muted);
+}
+
+.ba-cover-reference-summary > .ba-inline-actions {
+  margin-left: auto;
+}
+
+.ba-cover-reference-thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ba-cover-reference-thumbnails > img {
+  display: block;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  background: var(--ba-tint);
+  border: 1px solid var(--ba-line);
+  border-radius: 2px;
+}
+
+.ba-cover-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ba-cover-selection-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  align-items: center;
+}
+
+.ba-cover-selection-help {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ba-muted);
+}
+
+.ba-cover-reference-error {
+  color: #a56f15;
+}
+
+.ba-cover-selection-grid {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  max-width: 450px;
+}
+
+.ba-cover-selection-cell {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 1;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--ba-tint);
+  border: 2px solid var(--ba-line);
+  border-radius: 3px;
+  transition: none;
+}
+
+.ba-cover-selection-cell > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.ba-cover-selection-cell:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.ba-cover-selection-cell:hover:not(:disabled),
+.ba-cover-selection-cell.is-selected {
+  border-color: var(--ba-blue);
+}
+
+.ba-cover-selection-check {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--ba-blue);
+  border-bottom-left-radius: 3px;
+}

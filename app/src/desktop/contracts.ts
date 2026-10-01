@@ -2,6 +2,17 @@ export const BOARD_COLUMNS = 9;
 export const BOARD_ROWS = 5;
 export const BOARD_SIZE = BOARD_COLUMNS * BOARD_ROWS;
 
+export interface CoverReferenceInfo {
+  count: number;
+  images: string[];
+  error?: string;
+}
+
+export interface CoverSelection {
+  token: number;
+  images: string[];
+}
+
 /** Coordinates are normalized against the complete captured frame. */
 export interface Rect {
   x: number;

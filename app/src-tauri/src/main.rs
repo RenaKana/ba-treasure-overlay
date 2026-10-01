@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod ocr;
 mod vision;
+use vision::cover_reference::{self, CoverSample, SAMPLE_SIZE};
 mod geometry_state;
 use geometry_state::{CaptureLifecycle, GeometryState, WindowGeometry};
 mod performance_state;
@@ -11,7 +12,7 @@ use image::{codecs::jpeg::JpegEncoder, RgbaImage};
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -40,6 +41,7 @@ use windows_capture::{
 
 type NativeError = Box<dyn std::error::Error + Send + Sync>;
 type Control = CaptureControl<Capturer, NativeError>;
+static COVER_TOKENS: AtomicU64 = AtomicU64::new(1);
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -178,6 +180,9 @@ struct Session {
     item_correction: Option<(String, Vec<ItemSpec>)>,
     card_reading: String,
     recognizer: Arc<Mutex<vision::Recognizer>>,
+    cover_samples: Vec<CoverSample>,
+    cover_candidates: Option<CoverCandidates>,
+    cover_selection: Option<CoverCandidates>,
     latest: Option<CaptureState>,
     result: Option<OverlayResult>,
     calculating: bool,
@@ -228,6 +233,9 @@ impl Default for Session {
             item_correction: None,
             card_reading: String::new(),
             recognizer: Arc::new(Mutex::new(vision::Recognizer::new())),
+            cover_samples: Vec::new(),
+            cover_candidates: None,
+            cover_selection: None,
             latest: None,
             result: None,
             calculating: false,
@@ -608,6 +616,7 @@ fn changed_snapshot(s: &mut Session, status: &str, message: &str) -> CaptureStat
     snapshot
 }
 fn geometry_changed(s: &mut Session) -> CaptureState {
+    s.cover_candidates = None;
     // Resizing cancels results, not a user-requested refresh or this game round.
     let deadline = s.refresh_deadline_ms.or_else(|| {
         (s.profile.update_mode == UpdateMode::Manual && s.calculating)
@@ -648,9 +657,11 @@ fn settings_changed(s: &mut Session) -> CaptureState {
     }
 }
 fn frame_requested(s: &Session) -> bool {
-    s.profile.update_mode == UpdateMode::Auto || s.refresh_deadline_ms.is_some()
+    s.cover_selection.is_none()
+        && (s.profile.update_mode == UpdateMode::Auto || s.refresh_deadline_ms.is_some())
 }
 fn begin_manual_refresh(s: &mut Session, now: u64) -> Result<CaptureState, String> {
+    if s.cover_selection.is_some() { return Err("正在选择未翻开样本".into()); }
     if s.profile.update_mode != UpdateMode::Manual {
         return Err("请先切换到手动模式".into());
     }
@@ -731,6 +742,156 @@ fn saved_profile(app: &tauri::AppHandle) -> Profile {
         .and_then(|b| serde_json::from_slice::<Profile>(&b).ok())
         .filter(|p| p.board.is_none_or(valid_rect))
         .unwrap_or_default()
+}
+
+#[derive(Clone)]
+struct CoverCandidates {
+    token: u64,
+    session_id: u64,
+    generation: u64,
+    round_epoch: u64,
+    samples: Vec<CoverSample>,
+    images: Vec<String>,
+}
+#[derive(Serialize)]
+struct CoverSelection {
+    token: u64,
+    images: Vec<String>,
+}
+#[derive(Serialize)]
+struct CoverReferenceInfo {
+    count: usize,
+    images: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+fn cover_reference_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path().app_data_dir().map(|dir| dir.join("cover-reference.json"))
+        .map_err(|_| "未翻开样本文件无法读取，请清除或重新选择".into())
+}
+fn cover_images(samples: &[CoverSample]) -> Result<Vec<String>, String> {
+    use image::ImageEncoder;
+    samples.iter().map(|sample| {
+        if !sample.valid() { return Err("未翻开样本文件无法读取，请清除或重新选择".into()); }
+        let rgb: Vec<u8> = sample.rgb.iter().flatten().copied().collect();
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut bytes)
+            .write_image(&rgb, SAMPLE_SIZE as u32, SAMPLE_SIZE as u32, image::ExtendedColorType::Rgb8)
+            .map_err(|_| "未翻开样本文件无法读取，请清除或重新选择".to_owned())?;
+        Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+    }).collect()
+}
+fn cover_info(samples: &[CoverSample]) -> Result<CoverReferenceInfo, String> {
+    Ok(CoverReferenceInfo { count: samples.len(), images: cover_images(samples)?, error: None })
+}
+#[tauri::command]
+fn get_cover_reference(app: tauri::AppHandle) -> CoverReferenceInfo {
+    let result = cover_reference_path(&app).and_then(|path| cover_reference::load(&path))
+        .and_then(|samples| cover_info(&samples));
+    result.unwrap_or_else(|error| CoverReferenceInfo { count: 0, images: Vec::new(), error: Some(error) })
+}
+fn freeze_cover_selection(s: &mut Session) -> Result<CoverSelection, String> {
+    let candidate = s.cover_candidates.as_ref()
+        .filter(|c| s.hwnd != 0 && c.session_id == s.id && c.generation == s.capture.generation
+            && c.round_epoch == s.round_epoch)
+        .ok_or("请先刷新游戏画面，再选择未翻开样本")?.clone();
+    let response = CoverSelection { token: candidate.token, images: candidate.images.clone() };
+    s.cover_selection = Some(candidate);
+    Ok(response)
+}
+#[tauri::command]
+fn begin_cover_selection(
+    app: tauri::AppHandle,
+    expected_session: u64,
+    expected_round_epoch: u64,
+    expected_revision: u64,
+) -> Result<CoverSelection, String> {
+    let state = app.state::<AppState>();
+    let (selection, snapshot) = {
+        let mut s = state.session.lock().unwrap();
+        require_version(&s, expected_session, expected_round_epoch, expected_revision)?;
+        let selection = freeze_cover_selection(&mut s)?;
+        let snapshot = changed_snapshot(&mut s, "manual", "正在选择未翻开样本");
+        (selection, snapshot)
+    };
+    hide_overlay(&app);
+    let _ = app.emit_to("main", "capture-state", snapshot);
+    refresh_overlay(&app);
+    Ok(selection)
+}
+fn selected_cover_samples(s: &Session, token: u64, indices: &[usize]) -> Result<Vec<CoverSample>, String> {
+    // Frozen appearance samples remain valid if capture restarts after a resize.
+    // They no longer depend on the current frame's geometry or generation.
+    let candidate = s.cover_selection.as_ref()
+        .filter(|c| c.token == token && c.session_id == s.id
+            && c.round_epoch == s.round_epoch && s.hwnd != 0)
+        .ok_or("样本选择已失效，请重新选择")?;
+    if indices.is_empty() { return Err("请选择至少一个未翻开的格子".into()); }
+    let mut unique = indices.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    unique.into_iter().map(|index| candidate.samples.get(index).cloned()
+        .ok_or_else(|| "样本选择已失效，请重新选择".to_owned())).collect()
+}
+fn replace_cover_samples(s: &mut Session, samples: Vec<CoverSample>) {
+    s.recognizer = Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(&samples)));
+    s.cover_samples = samples;
+    s.cover_selection = None;
+    s.cover_candidates = None;
+    s.reference_initializing = true;
+}
+fn cover_selection_finished(s: &mut Session, message: &str) -> CaptureState {
+    let status = if s.paused { "paused" } else if s.profile.update_mode == UpdateMode::Manual { "manual" } else { "searching" };
+    changed_snapshot(s, status, message)
+}
+#[tauri::command]
+fn save_cover_selection(app: tauri::AppHandle, token: u64, indices: Vec<usize>) -> Result<CoverReferenceInfo, String> {
+    let state = app.state::<AppState>();
+    let (info, snapshot) = {
+        let mut s = state.session.lock().unwrap();
+        let samples = selected_cover_samples(&s, token, &indices)?;
+        let info = cover_info(&samples)?;
+        // Commit to disk before changing active references. A failed save
+        // leaves both the old reference and the frozen selection available.
+        cover_reference::save(&cover_reference_path(&app)?, &samples)?;
+        replace_cover_samples(&mut s, samples);
+        let snapshot = cover_selection_finished(&mut s, "未翻开样本已保存，请刷新棋盘");
+        (info, snapshot)
+    };
+    hide_overlay(&app);
+    let _ = app.emit_to("main", "capture-state", snapshot);
+    refresh_overlay(&app);
+    Ok(info)
+}
+#[tauri::command]
+fn cancel_cover_selection(app: tauri::AppHandle, token: u64) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let snapshot = {
+        let mut s = state.session.lock().unwrap();
+        if s.cover_selection.is_none() { return Ok(()); }
+        if s.cover_selection.as_ref().is_some_and(|c| c.token != token) {
+            return Err("样本选择已失效，请重新选择".into());
+        }
+        s.cover_selection = None;
+        cover_selection_finished(&mut s, "已取消样本选择，请刷新棋盘")
+    };
+    let _ = app.emit_to("main", "capture-state", snapshot);
+    refresh_overlay(&app);
+    Ok(())
+}
+#[tauri::command]
+fn clear_cover_reference(app: tauri::AppHandle) -> Result<CoverReferenceInfo, String> {
+    let state = app.state::<AppState>();
+    let snapshot = {
+        let mut s = state.session.lock().unwrap();
+        cover_reference::save(&cover_reference_path(&app)?, &[])?;
+        replace_cover_samples(&mut s, Vec::new());
+        if s.hwnd != 0 { Some(cover_selection_finished(&mut s, "已清除固定样本，请刷新棋盘")) } else { None }
+    };
+    hide_overlay(&app);
+    if let Some(snapshot) = snapshot { let _ = app.emit_to("main", "capture-state", snapshot); }
+    refresh_overlay(&app);
+    cover_info(&[])
 }
 fn item_fits_board(width: u32, height: u32) -> bool {
     width > 0 && height > 0
@@ -827,6 +988,8 @@ fn end_capture(app: &tauri::AppHandle) {
         s.id += 1;
         s.hwnd = 0;
         s.result = None;
+        s.cover_candidates = None;
+        s.cover_selection = None;
         // Detach atomically with invalidation; a late worker cannot take the
         // control of a subsequent user connection.
         state.control.lock().unwrap().take()
@@ -900,6 +1063,7 @@ fn start_capture(app: tauri::AppHandle, hwnd: i64) -> Result<u64, String> {
     if !unsafe { IsWindow(Some(HWND(hwnd as *mut _))).as_bool() } {
         return Err("目标窗口已关闭，请刷新窗口列表".into());
     }
+    let cover_samples = cover_reference::load(&cover_reference_path(&app)?)?;
     let state = app.state::<AppState>();
     let (ticket, old) = {
         let mut s = state.session.lock().unwrap();
@@ -908,6 +1072,8 @@ fn start_capture(app: tauri::AppHandle, hwnd: i64) -> Result<u64, String> {
         let old = state.control.lock().unwrap().take();
         *s = Session {
             id, hwnd, last_frame_ms: now_ms(), profile: saved_profile(&app),
+            recognizer: Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(&cover_samples))),
+            cover_samples,
             capture: CaptureLifecycle::new(window, now_ms()),
             ..Session::default()
         };
@@ -1178,7 +1344,9 @@ fn calibrate(
             return Err("棋盘必须位于游戏内容区域内".into());
         }
         s.profile.board = Some(r);
-        s.recognizer = Arc::new(Mutex::new(vision::Recognizer::new()));
+        s.recognizer = Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(&s.cover_samples)));
+        s.cover_candidates = None;
+        s.cover_selection = None;
         s.reference_initializing = true;
         let snapshot = settings_changed(&mut s);
         (s.profile.clone(), snapshot)
@@ -1265,7 +1433,9 @@ async fn correct_cell(
 }
 fn clear_round(s: &mut Session) {
     s.round_epoch += 1;
-    s.recognizer = Arc::new(Mutex::new(vision::Recognizer::new()));
+    s.recognizer = Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(&s.cover_samples)));
+    s.cover_candidates = None;
+    s.cover_selection = None;
     s.items = unread_items();
     s.item_correction = None;
     s.card_reading.clear();
@@ -1561,6 +1731,19 @@ impl Capturer {
         let update_preview = self.preview.needs_preview(
             observed_ms, &key, force_preview || snap.frame_url.is_empty(),
         );
+        let profile_board = {
+            let state = self.app.state::<AppState>();
+            let s = state.session.lock().unwrap();
+            s.profile.board.map(Rect::array)
+        };
+        // Build lossless normalized tiles from this same raw frame, never
+        // from the downscaled JPEG preview. An unrecognized board can still
+        // provide header/card-validated proposals for the player to inspect.
+        let cover_candidates = if update_preview {
+            vision::sample_cover_candidates(img, snap.content_rect_px, profile_board)
+                .map(|samples| cover_images(&samples).map(|images| (samples, images)))
+                .transpose()?
+        } else { None };
         if update_preview {
             // Resize from the source reference; avoid cloning a full WGC frame.
             snap.frame_url = encode_preview(img)?;
@@ -1572,7 +1755,8 @@ impl Capturer {
             // edit, pause, resize, stop, or a newer user connection invalidates it.
             if !capture_current(&s, self.id, self.generation, self.hwnd)
                 || s.revision != snap.revision || s.round_epoch != snap.round_epoch
-                || s.paused || s.geometry.window != Some(window_geometry(self.hwnd)) {
+                || s.paused || s.cover_selection.is_some()
+                || s.geometry.window != Some(window_geometry(self.hwnd)) {
                 return Ok(());
             }
             s.analysis_ms = work_started.elapsed().as_millis() as u64;
@@ -1593,6 +1777,16 @@ impl Capturer {
                 );
             }
             record_capture_diagnostics(&self.app, &s, &snap, stage);
+            if update_preview {
+                s.cover_candidates = cover_candidates.map(|(samples, images)| CoverCandidates {
+                    token: COVER_TOKENS.fetch_add(1, Ordering::Relaxed),
+                    session_id: s.id,
+                    generation: s.capture.generation,
+                    round_epoch: s.round_epoch,
+                    samples,
+                    images,
+                });
+            }
             s.latest = Some(snap.clone());
         }
         if update_preview { self.preview.published(observed_ms, key); }
@@ -1718,7 +1912,11 @@ impl GraphicsCaptureApiHandler for Capturer {
                 snap.captured_at_ms = Some(observed_ms);
                 if content.is_none() && s.geometry.content_settled() {
                     snap.status = "uncertain".into();
-                    snap.message = "未定位到清晰的游戏内容区，请检查遮挡或窗口尺寸".into();
+                    snap.message = if s.cover_samples.is_empty() {
+                        "未定位到清晰的游戏内容区，请检查遮挡或窗口尺寸"
+                    } else {
+                        "未翻开样本不匹配，请检查画面或更新样本"
+                    }.into();
                     snap.refreshing = false;
                     s.refresh_deadline_ms = None;
                 }
@@ -1847,7 +2045,11 @@ impl GraphicsCaptureApiHandler for Capturer {
                     "已翻区域尚未确认完整，暂停概率；翻完物品后自动恢复".into()
                 })
             } else if analysis.cells.iter().any(|c| c == "uncertain") {
-                ("uncertain", "有格子待确认，请在预览中校正".into())
+                ("uncertain", if analysis.manual_cover_mismatch {
+                    "未翻开样本不匹配，请检查画面或更新样本".into()
+                } else {
+                    "有格子待确认，请在预览中校正".into()
+                })
             } else if opened != 45 - self.hud.remaining.unwrap() {
                 ("uncertain", "翻格数量与画面尚未一致".into())
             } else if s.remaining.is_some_and(|n| self.hud.remaining.unwrap() > n) {
@@ -2546,6 +2748,53 @@ mod session_tests {
     }
 
     #[test]
+    fn manual_cover_selection_freezes_pixels_and_rejects_stale_tokens() {
+        let mut s = Session::default();
+        s.id = 7;
+        s.hwnd = 42;
+        s.profile.update_mode = UpdateMode::Auto;
+        let samples: Vec<_> = (0..45).map(|i| CoverSample { rgb: vec![[i, 10, 20]; SAMPLE_SIZE * SAMPLE_SIZE] }).collect();
+        s.cover_candidates = Some(CoverCandidates {
+            token: 17, session_id: s.id, generation: s.capture.generation,
+            round_epoch: s.round_epoch, samples: samples.clone(), images: vec!["preview".into(); 45],
+        });
+        assert!(frame_requested(&s));
+        let selection = freeze_cover_selection(&mut s).unwrap();
+        assert!(!frame_requested(&s));
+        assert_eq!(selection.images.len(), 45);
+        s.cover_candidates.as_mut().unwrap().samples[3].rgb.fill([255, 0, 0]);
+        assert_eq!(selected_cover_samples(&s, selection.token, &[3, 3, 8]).unwrap(), vec![samples[3].clone(), samples[8].clone()]);
+        assert!(selected_cover_samples(&s, selection.token, &[]).is_err());
+        assert!(selected_cover_samples(&s, selection.token, &[45]).is_err());
+        assert!(selected_cover_samples(&s, selection.token + 1, &[3]).is_err());
+        s.capture.generation += 1;
+        geometry_changed(&mut s);
+        assert_eq!(selected_cover_samples(&s, selection.token, &[3]).unwrap(), vec![samples[3].clone()]);
+        s.round_epoch += 1;
+        assert!(selected_cover_samples(&s, selection.token, &[3]).is_err());
+        s.round_epoch -= 1;
+        s.id += 1;
+        assert!(selected_cover_samples(&s, selection.token, &[3]).is_err());
+        assert!(s.cover_samples.is_empty());
+    }
+
+    #[test]
+    fn round_reset_preserves_player_samples_and_invalidates_selection() {
+        let mut frame = image::load_from_memory(include_bytes!("../tests/fixtures/vision-initial.png"))
+            .unwrap().to_rgba8();
+        for y in 346..866 { for x in 910..1846 { frame.put_pixel(x, y, image::Rgba([30, 15, 160, 255])); } }
+        let samples = vision::sample_cover_candidates(&frame, None, None).unwrap();
+        let mut s = Session::default();
+        replace_cover_samples(&mut s, vec![samples[0].clone()]);
+        clear_round(&mut s);
+        assert_eq!(s.cover_samples, vec![samples[0].clone()]);
+        assert!(s.cover_selection.is_none() && s.cover_candidates.is_none());
+        let analysis = s.recognizer.lock().unwrap().analyze(&frame, None, Some(45));
+        assert!(analysis.present, "{}", analysis.message);
+        assert!(analysis.cells.iter().all(|c| c == "unknown"));
+    }
+
+    #[test]
     fn changed_initial_covers_reset_the_round_when_round_ocr_is_missing() {
         let frame = image::load_from_memory(include_bytes!("../tests/fixtures/vision-initial.png"))
             .unwrap().to_rgba8();
@@ -2643,6 +2892,11 @@ fn main() {
             confirm_items,
             correct_cell,
             reset_round,
+            get_cover_reference,
+            begin_cover_selection,
+            save_cover_selection,
+            cancel_cover_selection,
+            clear_cover_reference,
             render_overlay,
             overlay_painted,
             solver_failed

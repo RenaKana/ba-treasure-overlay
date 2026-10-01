@@ -15,17 +15,37 @@ pass. The derived all-purple-cover test preserves all 45 covered labels.
 These are embedded UI references; it would be incorrect to claim that
 production contains no captured reference pixels at all.
 
-An additional per-round path learns all 45 covers from their own positions.
-It requires same-frame remaining=45, three valid card shapes, no Finish,
-closed rectangular edges in every cell, and two stable observations. This
-bootstrap checks RGB edge continuity without an embedded color or bevel
-template. Each subsequent tile is compared only with its own initial patch;
-whole-patch similarity, local new-pixel checks and frame edges prevent small
-revealed fragments from being silently treated as covers. Confirmed cover
-references survive same-round resizing and temporary occlusion, but reset
-with the round/session/calibration. They are memory-only and are not new
-distributed image assets. Mid-round startup retains the embedded structural
-fallback; selection markers retain their existing recognition path.
+When no manual samples are saved, an additional per-round path learns all 45
+covers from their own positions. It requires same-frame remaining=45, three
+valid card shapes, no Finish, closed rectangular edges in every cell, and two
+stable observations. This bootstrap checks RGB edge continuity without an
+embedded color or bevel template. Each subsequent tile is compared only with
+its own initial patch; whole-patch similarity, local new-pixel checks and
+frame edges prevent small revealed fragments from being silently treated as
+covers. Confirmed automatic references survive same-round resizing and
+temporary occlusion, but reset with the round/session/calibration. They are
+memory-only and are not new distributed image assets. Mid-round startup
+retains the embedded structural fallback; selection markers retain their
+existing recognition path.
+
+Players may instead select one or more still-covered cells from a frozen
+45-cell preview, choosing one cell for each appearance. If the normal cover
+recognizer cannot locate a new appearance, sampling may still be offered when
+the title, three cards and a supported board layout can be located. The
+preview slices are only user-selection candidates and are not recommendation
+evidence until saved. Saved samples are 32x32 RGB patches in the local
+`%APPDATA%\local.ba.treasure.overlay\cover-reference.json`; they persist
+across rounds, restarts and calibration, match at any board position, and are
+neither uploaded nor added to the repository. A mismatch never silently
+relearns or replaces manual samples. Clearing them restores automatic
+recognition, including the per-position bootstrap and embedded structural
+references above. This path stores selected patch pixels, not screenshots.
+
+`vision_manual_cover.rs` uses a synthetic unfamiliar cover appearance to
+exercise selection at any position, persistence through round resets and
+resampling, changed-cell detection, and the lack of silent relearning or
+fallback. It is synthetic replay evidence, not acceptance of a new live
+event. No screenshot fixture is added for the generated appearance.
 
 `vision_initial_board.rs` exercises a generated 45-cell skin on a real HUD,
 per-position identity, a small inserted fragment, missing/stale counts,

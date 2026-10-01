@@ -15,7 +15,7 @@
 - `app/src-tauri/tests/fixtures/vision-hidden-tiles.png`
 - `app/src-tauri/tests/fixtures/vision-selected-cover.png`
 
-识别时还会从当前游戏画面临时提取每轮开局的 45 格参考，仅保存在本机会话内存中，不写入磁盘或上传。这项功能没有移除上述两张内置参考，也不改变现有截图和图标的权利归属。
+没有手动样本时，识别还会从当前游戏画面临时提取每轮开局的 45 格参考，仅保存在本机会话内存中，不写入磁盘或上传。玩家也可主动选取一个或多个未翻开方格；选中的 32×32 像素样本会保存在本机 `%APPDATA%\local.ba.treasure.overlay\cover-reference.json`，跨轮次和重启保留，不会上传。两种参考都不会新增仓库内的截图文件。自动参考和玩家样本均不会移除上述两张内置参考，也不改变现有截图和图标的权利归属。
 
 来源和用途见 [vision-fixtures.md](app/src-tauri/tests/fixtures/vision-fixtures.md)、[PC 截图来源](app/src-tauri/tests/fixtures/pc-clients-provenance.md)、[4:3 截图来源](app/src-tauri/tests/fixtures/pc-global-four-three-provenance.md) 及同目录其他 provenance 文件。这些文件证明样本来源和测试用途，不等于权利人的再分发许可。
 
