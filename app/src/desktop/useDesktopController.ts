@@ -8,7 +8,6 @@ import type {
   CoverReferenceInfo,
   CoverSelection,
   ItemSpec,
-  ObservedCell,
   OverlayResult,
   Rect,
   SolverResponse,
@@ -21,9 +20,10 @@ import {
   chooseWindow,
   filterMask,
   isCurrentResult,
+  projectSolverSnapshot,
   selectedProbabilities,
-  selectedInferredPlacements,
   shouldAcceptCapture,
+  uniquePartialPlacements,
   validItems,
   validSolverResult,
 } from './logic.ts';
@@ -208,11 +208,13 @@ export function useDesktopController() {
 
   const publishResult = useCallback((response: SolverResponse) => {
     const state = captureRef.current;
+    const input = projectSolverSnapshot(state);
     const probabilities = selectedProbabilities(response.probs, filterMask(filtersRef.current));
     if (
       !native ||
       !isCurrentResult(response, state) ||
       state === null ||
+      input === null ||
       probabilities === null ||
       response.precision === null ||
       dirtyRef.current ||
@@ -228,10 +230,10 @@ export function useDesktopController() {
       round_epoch: response.round_epoch,
       revision: response.revision,
       probabilities,
-      cells: [...state.cells],
+      cells: input.cells,
       precision: response.precision,
       message: response.precision === 'exact' ? '精确概率' : '估计概率',
-      inferred_placements: selectedInferredPlacements(response, filterMask(filtersRef.current)),
+      inferred_placements: uniquePartialPlacements(state),
       emphasize_best: emphasizeBestRef.current,
     };
     // Serial publication prevents a quickly changed filter from being overwritten.
@@ -265,6 +267,8 @@ export function useDesktopController() {
     if (!native || jobKey === null) return;
     const state = captureRef.current;
     if (state === null || calculationKey(state) !== jobKey || !canStartCalculation(state, manualJobRef.current)) return;
+    const input = projectSolverSnapshot(state);
+    if (input === null) return;
     const generation = ++generationRef.current;
     if (state.update_mode === 'manual') manualJobRef.current = jobKey;
     setSolverPhase('calculating');
@@ -331,7 +335,7 @@ export function useDesktopController() {
         session_id: state.session_id,
         round_epoch: state.round_epoch,
         revision: state.revision,
-        input: { items: state.items, cells: state.cells as ObservedCell[], candidate_constraints: state.candidate_constraints },
+        input,
       });
     }).catch((cause) => {
       if (!currentWorker()) return;
@@ -590,8 +594,11 @@ export function useDesktopController() {
     !dirty && !calibrating && coverSelection === null && !awaitingChange
     ? selectedProbabilities(result.probs, filterMask(filters))
     : null;
-  const inferredPlacements = probabilities !== null && result !== null
-    ? selectedInferredPlacements(result, filterMask(filters))
+  const projectedInput = !dirty && !calibrating && coverSelection === null && !awaitingChange && calculationKey(capture) !== null
+    ? projectSolverSnapshot(capture)
+    : null;
+  const inferredPlacements = projectedInput !== null && capture !== null
+    ? uniquePartialPlacements(capture)
     : [];
 
   return {
@@ -601,6 +608,7 @@ export function useDesktopController() {
     toggleOverlay, filters, toggleFilter, busy, awaitingChange, error,
     emphasizeBest, toggleEmphasizeBest,
     clearError: () => setError(''), solverPhase, solverMessage, result, probabilities, inferredPlacements,
+    projectedCells: projectedInput?.cells ?? null,
     startCapture, stopCapture, setUpdateMode, refreshCapture,
     setPaused: (paused: boolean) => mutate('set_paused', { paused }),
     coverReference, coverSelection,

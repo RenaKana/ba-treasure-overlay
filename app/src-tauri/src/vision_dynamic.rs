@@ -7,6 +7,11 @@ use super::{
 use image::{Rgba, RgbaImage};
 use std::collections::VecDeque;
 
+// Shared matcher: the live path stays in memory; the example exports diagnostics.
+#[cfg(feature = "partial-recognition")]
+#[path = "../examples/partial_recognition/matching.rs"]
+pub(crate) mod experiment;
+
 const CARD_W: usize = 154;
 const CARD_H: usize = 124;
 const MATCH_CELL: usize = 32;

@@ -92,6 +92,8 @@ export interface CaptureState extends CaptureVersion {
   items: ItemSpec[];
   completed_objects: CompletedObject[];
   candidate_constraints: PlacementConstraint[];
+  /** Resolved partial-item footprints, separate from the observed cells. */
+  partial_placements: InferredPlacement[];
   reference_ready: [boolean, boolean, boolean];
   card_fingerprints: [string | null, string | null, string | null];
   finish: [boolean, boolean, boolean];

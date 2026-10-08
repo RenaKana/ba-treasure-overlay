@@ -8,7 +8,11 @@ use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 #[path = "vision_dynamic.rs"]
 mod dynamic;
+#[cfg(feature = "partial-recognition")]
+pub(crate) use dynamic::experiment;
 use dynamic::CardTemplate;
+#[path = "partial_recognition.rs"]
+pub mod partial;
 #[path = "cover_reference.rs"]
 pub mod cover_reference;
 #[path = "vision_initial.rs"]
@@ -42,6 +46,7 @@ pub struct PlacementConstraint {
     pub placements: Vec<GridPlacement>,
 }
 
+#[derive(Clone)]
 pub struct Analysis {
     /// Current-frame full-cover evidence for round reset only. It must not
     /// turn a mismatch against a learned cell into a covered-cell label.
@@ -97,6 +102,7 @@ impl Rect {
 struct Patch {
     rgb: Vec<[u8; 3]>,
     average: [f64; 3],
+    source_size: Option<[f64; 2]>,
 }
 
 impl Patch {
@@ -111,7 +117,9 @@ impl Patch {
                 ));
             }
         }
-        Self::from_rgb(rgb)
+        let mut patch = Self::from_rgb(rgb);
+        patch.source_size = Some([rect.w, rect.h]);
+        patch
     }
 
     fn from_rgb(rgb: Vec<[u8; 3]>) -> Self {
@@ -126,7 +134,11 @@ impl Patch {
         for value in &mut average {
             *value /= 26.0 * 26.0;
         }
-        Self { rgb, average }
+        Self {
+            rgb,
+            average,
+            source_size: None,
+        }
     }
 }
 
@@ -216,6 +228,7 @@ pub struct Recognizer {
     last_remaining: Option<u32>,
     last_hidden: usize,
     templates: [Option<CardTemplate>; 3],
+    partial: partial::Recognizer,
 }
 
 impl Default for Recognizer {
@@ -238,6 +251,7 @@ impl Recognizer {
             last_remaining: None,
             last_hidden: 0,
             templates: std::array::from_fn(|_| None),
+            partial: partial::Recognizer::default(),
         }
     }
 
@@ -316,6 +330,19 @@ impl Recognizer {
             counts,
             true,
         )
+    }
+
+    /// Resolve item footprints separately from the raw pixel observations.
+    /// The caller supplies the same content rectangle, effective shapes, and
+    /// remaining inventory used by the current OCR/correction pass.
+    pub fn resolve_partial(
+        &mut self,
+        frame: &RgbaImage,
+        analysis: &Analysis,
+        content: Option<[f64; 4]>,
+        counts: [Option<u32>; 3],
+    ) -> partial::Recognition {
+        self.partial.resolve(frame, analysis, content, counts)
     }
 
     fn analyze_internal(
@@ -602,6 +629,9 @@ impl Recognizer {
                 references.ice.push(self.last_pixels[index].clone());
             }
         }
+        // An explicit correction also revokes inferred footprints, including
+        // choosing "uncertain" again. Keep this round's card/Finish references.
+        self.partial.invalidate_confirmations();
         Ok(())
     }
 
@@ -615,6 +645,7 @@ impl Recognizer {
         self.last_remaining = None;
         self.last_hidden = 0;
         self.templates = std::array::from_fn(|_| None);
+        self.partial.reset();
         if let Some(ref mut references) = self.references {
             references.ice.clear();
         }

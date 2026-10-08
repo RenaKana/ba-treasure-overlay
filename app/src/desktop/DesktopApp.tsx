@@ -228,19 +228,19 @@ function ControlWindow() {
     toggleCalibration, calibrate, correctCell, resetRound, overlayVisible,
     toggleOverlay, filters, toggleFilter, busy, awaitingChange, error, clearError,
     solverPhase, solverMessage, result, probabilities, startCapture, stopCapture, setPaused,
-    setUpdateMode, refreshCapture, inferredPlacements, emphasizeBest, toggleEmphasizeBest,
+    setUpdateMode, refreshCapture, inferredPlacements, projectedCells, emphasizeBest, toggleEmphasizeBest,
     coverReference, coverSelection, beginCoverSelection, saveCoverSelection, cancelCoverSelection, clearCoverReference,
   } = controller;
   const [brush, setBrush] = useState<CellState>('empty');
   const cells = capture?.cells.length === BOARD_SIZE ? capture.cells : Array<CellState>(BOARD_SIZE).fill('unknown');
-  const best = probabilities === null ? new Set<number>() : bestCells(probabilities, cells);
+  const best = probabilities === null ? new Set<number>() : bestCells(probabilities, projectedCells ?? cells);
   const paused = capture?.status === 'paused';
   const manual = (capture?.update_mode ?? 'manual') === 'manual';
   const refreshing = capture?.refreshing === true;
   const editingDisabled = busy !== '' || awaitingChange || refreshing || coverSelection !== null;
   const modeDisabled = !native || !capturing || capture === null || editingDisabled || calibrating;
   const confirmed = Boolean(capture?.confirmed && !dirty && validItems(items));
-  const uncertainCount = cells.filter((cell) => cell === 'uncertain').length;
+  const uncertainCount = cells.filter((cell, index) => cell === 'uncertain' && projectedCells?.[index] !== 'completed').length;
   const status = !native ? '桌面程序未连接' : !capturing ? '未连接游戏' : capture === null ? '正在连接' : refreshing ? capture.status === 'ready' ? '正在计算' : '正在刷新' : manual && capture.status === 'ready' ? '手动快照' : statusLabels[capture.status];
   const statusKind = !native || !capturing ? 'idle' : refreshing ? 'searching' : manual && capture?.status === 'ready' ? 'manual' : capture?.status ?? 'searching';
   const capturedAt = capture?.captured_at_ms;
@@ -255,10 +255,11 @@ function ControlWindow() {
   else if (calibrating) calculationStatus = manual ? '框选后点击刷新更新' : '框选棋盘后继续计算';
   else if (awaitingChange) calculationStatus = '等待状态更新';
   else if (dirty) calculationStatus = manual ? '校正参数后点击刷新' : '校正参数后计算';
-  else if (!capture.confirmed || !validItems(items)) calculationStatus = '等待物品卡片；读取失败时可校正参数';
+  else if (!capture.confirmed || !validItems(items)) calculationStatus = capture.status !== 'ready' && capture.message !== ''
+    ? capture.message : '等待物品卡片；读取失败时可校正参数';
   else if (capture.status === 'manual') calculationStatus = '手动快照，点击刷新更新';
   else if (capture.status !== 'ready') calculationStatus = capture.message || statusLabels[capture.status];
-  else if (solverPhase === 'waiting') calculationStatus = uncertainCount > 0 ? manual ? '校正待确认格子后点击刷新' : '校正待确认格子后计算' : manual ? '点击刷新更新手动快照' : '等待棋盘';
+  else if (solverPhase === 'waiting') calculationStatus = uncertainCount > 0 && projectedCells === null ? manual ? '校正待确认格子后点击刷新' : '校正待确认格子后计算' : manual ? '点击刷新更新手动快照' : '等待棋盘';
 
   return <main className="ba-control">
     <header className="ba-header">
@@ -318,7 +319,7 @@ function ControlWindow() {
       </div></div>
       <div className="ba-correction-tools"><span>{t('点选校正为')}</span><div className="ba-brushes" role="group" aria-label={t('校正状态')}>{(Object.keys(cellLabels) as CellState[]).map((cell) => <button key={cell} className={`ba-brush ba-cell-${cell}${brush === cell ? ' is-selected' : ''}`} type="button" aria-pressed={brush === cell} onClick={() => setBrush(cell)}>{t(cellLabels[cell])}</button>)}</div></div>
       <div className="ba-cell-grid-wrap"><div className="ba-cell-grid" aria-label={t('9 列 5 行棋盘')}>{cells.map((cell, index) => <button key={index} type="button" className={`ba-cell ba-cell-${cell}${best.has(index) ? ' is-best' : ''}${emphasizeBest && best.has(index) ? ' is-emphasized' : ''}`} disabled={!native || !capturing || capture?.board == null || editingDisabled || calibrating} title={t('第 {{row}} 行，第 {{column}} 列：{{state}}', { row: Math.floor(index / BOARD_COLUMNS) + 1, column: index % BOARD_COLUMNS + 1, state: t(cellLabels[cell]) })} aria-label={t('第 {{row}} 行，第 {{column}} 列，{{state}}，校正为{{brush}}', { row: Math.floor(index / BOARD_COLUMNS) + 1, column: index % BOARD_COLUMNS + 1, state: t(cellLabels[cell]), brush: t(cellLabels[brush]) })} onClick={() => { void correctCell(index, brush); }}>
-        {cell === 'unknown' && probabilities !== null ? <span className="ba-cell-probability">{percent(probabilities[index])}</span> : <span>{cell === 'empty' ? t('空') : cellSymbols[cell]}</span>}
+        {cell === 'unknown' && projectedCells?.[index] === 'unknown' && probabilities !== null ? <span className="ba-cell-probability">{percent(probabilities[index])}</span> : <span>{cell === 'empty' ? t('空') : cellSymbols[cell]}</span>}
       </button>)}</div><InferenceLayer placements={inferredPlacements} /></div>
       <div className={`ba-calculation-status${solverPhase === 'error' ? ' is-error' : ''}`} role="status"><i className={solverPhase === 'calculating' ? 'is-working' : ''} /><span>{translateDesktopMessage(calculationStatus, t)}</span>{solverPhase === 'ready' && result !== null && <span className="ba-calculation-detail">{result.precision === 'sampled' ? t('{{value}} 个样本', { value: result.samples.toLocaleString(locale) }) : t('{{value}} 种布局', { value: result.total_patterns })}</span>}</div>
     </section>
@@ -331,7 +332,7 @@ function ControlWindow() {
       </div>)}</div>
       {dirty && !validItems(items) && <p className="ba-item-validation" role="status">{t('尺寸需为正整数且旋转后能放入 9×5 棋盘；剩余件数为 0–7，总占格不能超过 45。')}</p>}
     </section>
-    <footer className="ba-footer"><span>{t('提示当前筛选物品的命中概率')}</span><span>{t('局部命中时暂停 · 完整翻出后更新')}</span></footer>
+    <footer className="ba-footer"><span>{t('提示当前筛选物品的命中概率')}</span><span>{t('已定位物品标出占格 · 未确认时暂停')}</span></footer>
   </main>;
 }
 

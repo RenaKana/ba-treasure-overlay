@@ -2,6 +2,7 @@ use wasm_solver::{
     solve_observed_native, solve_snapshot_native, GridPlacement, InferredPlacement, ObservedInput,
     ObservedItem, PlacementConstraint, SnapshotInput, SnapshotItem, SnapshotResult,
 };
+use wasm_solver::snapshot::check_snapshot_feasibility_native;
 
 fn input(shapes: [(i32, i32, i32); 3], active_width: usize, active_height: usize) -> SnapshotInput {
     SnapshotInput {
@@ -612,5 +613,52 @@ fn full_board_rotation_and_large_invalid_dimensions_are_validated() {
     }
     for (width, height) in [(6, 6), (10, 1), (1, 10)] {
         failure(&solve_snapshot_native(input([(width, height, 0), (1, 1, 0), (1, 1, 0)], 9, 5)), "input_error");
+    }
+}
+
+#[test]
+fn feasibility_retains_exact_count_and_constraints_with_only_one_witness() {
+    let mut board = input([(3, 3, 1), (2, 2, 4), (2, 1, 3)], 9, 5);
+    board.cells[10] = "item1".into();
+    board.candidate_constraints = vec![constraint(10, 1, vec![rect(1, 1, 2, 2)])];
+
+    let probabilities = solve_snapshot_native(board.clone());
+    let feasibility = check_snapshot_feasibility_native(board);
+    assert_eq!(probabilities.error, "");
+    assert_eq!(probabilities.samples, 100_000);
+    assert_eq!(feasibility.error, "");
+    assert_eq!(feasibility.precision, Some("sampled"));
+    assert_eq!(feasibility.samples, 1);
+    assert_eq!(feasibility.total_patterns, probabilities.total_patterns);
+    assert_eq!(feasibility.inferred_placements, probabilities.inferred_placements);
+    assert!(feasibility.probs.is_empty());
+}
+
+#[test]
+fn feasibility_preserves_unique_zero_invalid_and_overflow_results() {
+    let mut unique = input([(2, 1, 1), (1, 1, 0), (1, 1, 0)], 2, 1);
+    unique.cells[0] = "item0".into();
+    unique.candidate_constraints = vec![constraint(0, 0, vec![rect(0, 0, 2, 1)])];
+    let result = check_snapshot_feasibility_native(unique.clone());
+    assert_eq!(result.error, "");
+    assert_eq!(result.precision, Some("exact"));
+    assert_eq!(result.total_patterns, "1");
+    assert_eq!(result.samples, 1);
+    assert!(result.probs.is_empty());
+
+    let mut no_layout = unique.clone();
+    no_layout.cells[1] = "completed".into();
+    let mut invalid = unique;
+    invalid.candidate_constraints[0].anchor = 45;
+    for board in [no_layout, invalid, input([(1, 1, 7); 3], 9, 5)] {
+        let probabilities = solve_snapshot_native(board.clone());
+        let feasibility = check_snapshot_feasibility_native(board);
+        assert!(!probabilities.error.is_empty());
+        assert_eq!(feasibility.error, probabilities.error);
+        assert_eq!(feasibility.precision, None);
+        assert_eq!(feasibility.total_patterns, "0");
+        assert_eq!(feasibility.samples, 0);
+        assert!(feasibility.probs.is_empty());
+        assert!(feasibility.inferred_placements.is_empty());
     }
 }

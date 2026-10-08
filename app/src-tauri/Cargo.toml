@@ -4,7 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+default = ["partial-recognition"]
 custom-protocol = ["tauri/custom-protocol"]
+partial-recognition = ["dep:wasm-solver"]
+partial-recognition-experiment = ["partial-recognition"]
+
+[[example]]
+name = "partial-recognition"
+path = "examples/partial_recognition.rs"
+required-features = ["partial-recognition-experiment"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -15,6 +23,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 base64 = "0.22"
+wasm-solver = { path = "../wasm", default-features = false, optional = true }
 windows-capture = "=2.0.1"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Com", "Graphics_Imaging", "Media_Ocr", "Storage_Streams", "Globalization"] }
 

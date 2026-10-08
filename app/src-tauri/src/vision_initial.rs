@@ -55,7 +55,7 @@ const MANUAL_COMPARE_END: usize = PATCH_SIZE - 2;
 // three-tap sampling filter accounts for point-sampled UI edges and DPI
 // resampling; no color/gain fit or pixel-error threshold is relaxed.
 const MANUAL_PHASE_OFFSETS: [f64; 9] = [0.0, -0.25, 0.25, -0.5, 0.5, -0.75, 0.75, -1.0, 1.0];
-const MANUAL_AA_WEIGHTS: [f64; 3] = [0.2, 0.6, 0.2];
+const SAMPLING_AA_WEIGHTS: [f64; 3] = [0.2, 0.6, 0.2];
 
 #[derive(Default)]
 pub(super) struct InitialCovers {
@@ -120,10 +120,19 @@ pub(super) fn reference_matches(reference: &Patch, patch: &Patch, require_edges:
     if !valid_patch(reference) || !valid_patch(patch) {
         return false;
     }
-    // Keep the local-artwork guard against the original pixels. Smoothing
-    // or registering a reference must never explain away a new fragment.
+    // A reference learned in a smaller native window has lower peak contrast
+    // than the same cover rendered fullscreen. Only across sampling sizes,
+    // compare the observed peaks at the existing sampling filter's support.
+    // Keep the original reference, pixel-error limits, and closed-frame gate;
+    // unchanged geometry must retain the raw small-fragment sensitivity.
     if !novel_pixels_within(reference, patch, MATCH_MAX_NOVEL_PIXEL) {
-        return false;
+        let resized = require_edges
+            && matches!((reference.source_size, patch.source_size), (Some(old), Some(new)) if old != new);
+        if !resized
+            || !novel_pixels_within(reference, &sampling_patch(patch), MATCH_MAX_NOVEL_PIXEL)
+        {
+            return false;
+        }
     }
     if !pixel_match(reference, patch) {
         let filtered = filtered_reference(reference);
@@ -154,14 +163,14 @@ pub(super) fn manual_reference_matches(reference: &Patch, patch: &Patch) -> bool
     if !valid_patch(reference) || !valid_patch(patch) {
         return false;
     }
-    let observed = manual_sampling_patch(patch);
+    let observed = sampling_patch(patch);
     // This is a superset of the final guard's support: one sample of phase,
     // one of interpolation, and the existing one-sample local neighborhood.
     // Reject unrelated colors before trying the bounded whole-tile transforms.
     if !manual_novel_pixels_within(reference, &observed, 3) {
         return false;
     }
-    let filtered = manual_sampling_patch(reference);
+    let filtered = sampling_patch(reference);
     for dy in MANUAL_PHASE_OFFSETS {
         for dx in MANUAL_PHASE_OFFSETS {
             let predicted = registered_reference(&filtered, dx, dy);
@@ -178,15 +187,15 @@ pub(super) fn manual_reference_matches(reference: &Patch, patch: &Patch) -> bool
     false
 }
 
-fn manual_sampling_patch(patch: &Patch) -> Patch {
+fn sampling_patch(patch: &Patch) -> Patch {
     let rgb = (0..PATCH_SIZE * PATCH_SIZE)
         .map(|i| {
             let x = i % PATCH_SIZE;
             let y = i / PATCH_SIZE;
             std::array::from_fn(|c| {
                 let mut value = 0.0;
-                for (dy, wy) in MANUAL_AA_WEIGHTS.iter().enumerate() {
-                    for (dx, wx) in MANUAL_AA_WEIGHTS.iter().enumerate() {
+                for (dy, wy) in SAMPLING_AA_WEIGHTS.iter().enumerate() {
+                    for (dx, wx) in SAMPLING_AA_WEIGHTS.iter().enumerate() {
                         let xx = (x + dx).saturating_sub(1).min(PATCH_SIZE - 1);
                         let yy = (y + dy).saturating_sub(1).min(PATCH_SIZE - 1);
                         value += patch.rgb[yy * PATCH_SIZE + xx][c] as f64 * wx * wy;
@@ -541,6 +550,19 @@ mod tests {
         assert!(covers.matches(7, &grid[7]));
         assert!(!covers.matches(7, &changed[7]));
         assert!(covers.observe(&grid, false));
+    }
+
+    #[test]
+    fn same_sampling_size_keeps_raw_single_pixel_novelty_guard() {
+        let mut reference = generated_grid()[0].clone();
+        reference.source_size = Some([104.0, 104.0]);
+        let mut changed = reference.clone();
+        for channel in &mut changed.rgb[16 * PATCH_SIZE + 16] {
+            *channel += 30;
+        }
+        assert!(!novel_pixels_within(&reference, &changed, MATCH_MAX_NOVEL_PIXEL));
+        assert!(novel_pixels_within(&reference, &sampling_patch(&changed), MATCH_MAX_NOVEL_PIXEL));
+        assert!(!reference_matches(&reference, &changed, true));
     }
 
     #[test]

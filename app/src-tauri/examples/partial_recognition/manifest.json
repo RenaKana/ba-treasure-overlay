@@ -1,0 +1,1367 @@
+{
+  "schema": 1,
+  "notes": [
+    "All Round 1 partial captures, later truth, crops, transforms and cache replays share the tuning group.",
+    "Validation has independent rounds 2 and 7 but NO known real partial instances. Partial validation denominator is zero, never reported as 100% or passed.",
+    "Raw pixel truth: indices zero-based row-major 9x5. Continuous real sprite angle unavailable.",
+    "Only manual screenshot HUD transcription is passed to recognizers/constraints; completed truth is evaluator-only.",
+    "Historical crop artifacts are not runtime item references. Real capture instances and frame-correlated observation metrics must be reported separately.",
+    "The two 2026-10-06 supplied captures are a shared tuning/regression sequence after strap diagnosis informed algorithm changes. Prior archived runs remain unchanged; their original validation label does not qualify them as holdout for this new configuration.",
+    "2026-10-07: add five supplied screenshots (capture03 and four round-2/3 frames) as tuning/regression for foreground-guided refinement. The complete new sequence is tuning; original historical reports remain frozen. L=row/C=column are 1-based inclusive rectangles. No continuous sprite-angle truth."
+  ],
+  "frames": [
+    {
+      "id": "r1-initial",
+      "source": "../../tests/fixtures/vision-initial.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 0,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 45,
+        "counts": [
+          2,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-opened",
+      "source": "../../tests/fixtures/vision-opened.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 1,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 44,
+        "counts": [
+          2,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-partial-watergun",
+      "source": "../../tests/fixtures/vision-partial-watergun.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 2,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 41,
+        "counts": [
+          2,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 33,
+          "item_index": 0,
+          "rect": {
+            "x": 6,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-A",
+          "source": "vision-full-watergun.png; vision-fixtures.md:95-108"
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-full-watergun",
+      "source": "../../tests/fixtures/vision-full-watergun.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 3,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 36,
+        "counts": [
+          1,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-other-items",
+      "source": "../../tests/fixtures/vision-other-items.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 4,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 25,
+        "counts": [
+          1,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 13,
+          "item_index": 0,
+          "rect": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-B",
+          "source": "vision-waterguns-finished.png; vision-fixtures.md:95-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-after-realtime-flip",
+      "source": "../../tests/fixtures/vision-after-realtime-flip.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 5,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 24,
+        "counts": [
+          1,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 13,
+          "item_index": 0,
+          "rect": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-B",
+          "source": "vision-waterguns-finished.png; vision-fixtures.md:95-127"
+        },
+        {
+          "anchor": 21,
+          "item_index": 1,
+          "rect": {
+            "x": 3,
+            "y": 1,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-B",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-realtime-unselected",
+      "source": "../../tests/fixtures/vision-realtime-unselected.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 6,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 24,
+        "counts": [
+          1,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 13,
+          "item_index": 0,
+          "rect": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-B",
+          "source": "vision-waterguns-finished.png; vision-fixtures.md:95-127"
+        },
+        {
+          "anchor": 21,
+          "item_index": 1,
+          "rect": {
+            "x": 3,
+            "y": 1,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-B",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-blue-selected",
+      "source": "../../tests/fixtures/vision-blue-selected.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 7,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 24,
+        "counts": [
+          1,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 13,
+          "item_index": 0,
+          "rect": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-B",
+          "source": "vision-waterguns-finished.png; vision-fixtures.md:95-127"
+        },
+        {
+          "anchor": 21,
+          "item_index": 1,
+          "rect": {
+            "x": 3,
+            "y": 1,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-B",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-waterguns-finished",
+      "source": "../../tests/fixtures/vision-waterguns-finished.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 8,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 19,
+        "counts": [
+          0,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 21,
+          "item_index": 1,
+          "rect": {
+            "x": 3,
+            "y": 1,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-B",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-phones-completed",
+      "source": "../../tests/fixtures/vision-phones-completed.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-sequential",
+      "order": 9,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Existing MuMu/WGC fixture; exact capture ID unresolved for partial/full/other frames. Same sequence, no independent holdout. Truth only used after recognition.",
+      "hud": {
+        "remaining": 13,
+        "counts": [
+          0,
+          1,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-derived-960",
+      "source": "../../tests/fixtures/vision-other-items.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-resize-960",
+      "order": 0,
+      "split": "tuning",
+      "kind": "derived",
+      "round": "1",
+      "notes": "Existing regression crop and Triangle resampling; not a new capture.",
+      "hud": {
+        "remaining": 25,
+        "counts": [
+          1,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 13,
+          "item_index": 0,
+          "rect": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-B",
+          "source": "vision-waterguns-finished.png; vision-fixtures.md:95-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": "resize-960",
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-derived-1440",
+      "source": "../../tests/fixtures/vision-other-items.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-resize-1440",
+      "order": 0,
+      "split": "tuning",
+      "kind": "derived",
+      "round": "1",
+      "notes": "Existing regression crop and Triangle resampling; not a new capture.",
+      "hud": {
+        "remaining": 25,
+        "counts": [
+          1,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 13,
+          "item_index": 0,
+          "rect": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-B",
+          "source": "vision-waterguns-finished.png; vision-fixtures.md:95-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": "resize-1440",
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-rotated-cards",
+      "source": "../../tests/fixtures/vision-other-items.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-card-rotation",
+      "order": 0,
+      "split": "tuning",
+      "kind": "derived",
+      "round": "1",
+      "notes": "Existing 17 degree whole-card sprite transform; relative image angle truth remains unknown.",
+      "hud": {
+        "remaining": 25,
+        "counts": [
+          1,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 13,
+          "item_index": 0,
+          "rect": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-B",
+          "source": "vision-waterguns-finished.png; vision-fixtures.md:95-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": "rotate-cards-17",
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-negative-solid-fragment",
+      "source": "../../tests/fixtures/vision-partial-watergun.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-negative-solid-fragment",
+      "order": 0,
+      "split": "tuning",
+      "kind": "synthetic",
+      "round": "1",
+      "notes": "Synthetic negative in original source group; must not claim a unique identification from this perturbation.",
+      "hud": {
+        "remaining": 41,
+        "counts": [
+          2,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": "solid-fragment",
+      "must_remain_ambiguous": [
+        33
+      ]
+    },
+    {
+      "id": "r1-negative-symmetric-fragment",
+      "source": "../../tests/fixtures/vision-partial-watergun.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-negative-symmetric-fragment",
+      "order": 0,
+      "split": "tuning",
+      "kind": "synthetic",
+      "round": "1",
+      "notes": "Synthetic negative in original source group; must not claim a unique identification from this perturbation.",
+      "hud": {
+        "remaining": 41,
+        "counts": [
+          2,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": "symmetric-fragment",
+      "must_remain_ambiguous": [
+        33
+      ]
+    },
+    {
+      "id": "r1-negative-wrong-reference",
+      "source": "../../tests/fixtures/vision-partial-watergun.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-negative-wrong-reference",
+      "order": 0,
+      "split": "tuning",
+      "kind": "synthetic",
+      "round": "1",
+      "notes": "Synthetic negative in original source group; must not claim a unique identification from this perturbation.",
+      "hud": {
+        "remaining": 41,
+        "counts": [
+          2,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": "wrong-reference",
+      "must_remain_ambiguous": [
+        33
+      ]
+    },
+    {
+      "id": "r1-negative-background-pollution",
+      "source": "../../tests/fixtures/vision-partial-watergun.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-negative-background-pollution",
+      "order": 0,
+      "split": "tuning",
+      "kind": "synthetic",
+      "round": "1",
+      "notes": "Synthetic card-margin contamination; the real board pixels and gun footprint are unchanged. Correct unique recognition is permitted, wrong uniqueness and loss of the true candidate are failures.",
+      "hud": {
+        "remaining": 41,
+        "counts": [
+          2,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 33,
+          "item_index": 0,
+          "rect": {
+            "x": 6,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-gun-A",
+          "source": "vision-full-watergun.png; vision-fixtures.md:95-108"
+        }
+      ],
+      "transform": "background-pollution",
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-finish-cold",
+      "source": "../../tests/fixtures/vision-waterguns-finished.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-finish-cold",
+      "order": 0,
+      "split": "tuning",
+      "kind": "derived",
+      "round": "1",
+      "notes": "Same real bytes, separate cold-cache replay; not another real sample.",
+      "hud": {
+        "remaining": 19,
+        "counts": [
+          0,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 21,
+          "item_index": 1,
+          "rect": {
+            "x": 3,
+            "y": 1,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-B",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-reset-finish",
+      "source": "../../tests/fixtures/vision-waterguns-finished.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-reset",
+      "order": 0,
+      "split": "tuning",
+      "kind": "derived",
+      "round": "1",
+      "notes": "Cold Finish replay followed by explicit round/session reset.",
+      "hud": {
+        "remaining": 19,
+        "counts": [
+          0,
+          4,
+          1
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [
+        {
+          "anchor": 21,
+          "item_index": 1,
+          "rect": {
+            "x": 3,
+            "y": 1,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-B",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 26,
+          "item_index": 1,
+          "rect": {
+            "x": 8,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "r1-phone-C",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        },
+        {
+          "anchor": 39,
+          "item_index": 1,
+          "rect": {
+            "x": 2,
+            "y": 4,
+            "width": 3,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "r1-phone-D",
+          "source": "vision-phones-completed.png; vision-fixtures.md:119-127"
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r1-reset-initial",
+      "source": "../../tests/fixtures/vision-initial.png",
+      "group": "round1-mumu-20260930",
+      "sequence": "r1-reset",
+      "order": 1,
+      "split": "tuning",
+      "kind": "derived",
+      "round": "reset-replay",
+      "notes": "Replay of initial image after explicit reset, not a new played round.",
+      "hud": {
+        "remaining": 45,
+        "counts": [
+          2,
+          5,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r2-initial",
+      "source": "../../tests/fixtures/vision-round-two-initial.png",
+      "group": "round2-mumu-20260930",
+      "sequence": "r2",
+      "order": 0,
+      "split": "validation",
+      "kind": "real",
+      "round": "2",
+      "notes": "Independent round but no partial truth; HUD values from established OCR fixtures.",
+      "hud": {
+        "remaining": 45,
+        "counts": [
+          1,
+          2,
+          5
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r2-completed",
+      "source": "../../tests/fixtures/vision-round-two-completed.png",
+      "group": "round2-mumu-20260930",
+      "sequence": "r2",
+      "order": 1,
+      "split": "validation",
+      "kind": "real",
+      "round": "2",
+      "notes": "vision-completed-only-provenance.md; completed occupancy domain control, NOT partial holdout.",
+      "hud": {
+        "remaining": 27,
+        "counts": [
+          0,
+          1,
+          3
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r7-0",
+      "source": "../../tests/fixtures/vision-resolution-round-seven.png",
+      "group": "round7-mumu-20261001",
+      "sequence": "r7",
+      "order": 0,
+      "split": "validation",
+      "kind": "real",
+      "round": "7",
+      "notes": "Real native resolution capture; vision-resolution-round-seven-provenance.md. Completed occupancy only, NOT partial holdout.",
+      "hud": {
+        "remaining": 32,
+        "counts": [
+          1,
+          2,
+          5
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r7-1",
+      "source": "../../tests/fixtures/vision-resolution-round-seven-maximized.png",
+      "group": "round7-mumu-20261001",
+      "sequence": "r7",
+      "order": 1,
+      "split": "validation",
+      "kind": "real",
+      "round": "7",
+      "notes": "Real native resolution capture; vision-resolution-round-seven-provenance.md. Completed occupancy only, NOT partial holdout.",
+      "hud": {
+        "remaining": 32,
+        "counts": [
+          1,
+          2,
+          5
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r7-2",
+      "source": "../../tests/fixtures/vision-resolution-round-seven-eleven-maximized.png",
+      "group": "round7-mumu-20261001",
+      "sequence": "r7",
+      "order": 2,
+      "split": "validation",
+      "kind": "real",
+      "round": "7",
+      "notes": "Real native resolution capture; vision-resolution-round-seven-provenance.md. Completed occupancy only, NOT partial holdout.",
+      "hud": {
+        "remaining": 11,
+        "counts": [
+          0,
+          0,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r7-3",
+      "source": "../../tests/fixtures/vision-resolution-round-seven-eleven-small.png",
+      "group": "round7-mumu-20261001",
+      "sequence": "r7",
+      "order": 3,
+      "split": "validation",
+      "kind": "real",
+      "round": "7",
+      "notes": "Real native resolution capture; vision-resolution-round-seven-provenance.md. Completed occupancy only, NOT partial holdout.",
+      "hud": {
+        "remaining": 11,
+        "counts": [
+          0,
+          0,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "r7-4",
+      "source": "../../tests/fixtures/vision-resolution-round-seven-eleven-internal720.png",
+      "group": "round7-mumu-20261001",
+      "sequence": "r7",
+      "order": 4,
+      "split": "validation",
+      "kind": "real",
+      "round": "7",
+      "notes": "Real native resolution capture; vision-resolution-round-seven-provenance.md. Completed occupancy only, NOT partial holdout.",
+      "hud": {
+        "remaining": 11,
+        "counts": [
+          0,
+          0,
+          2
+        ],
+        "source": "manual visual transcription of this source screenshot; values are not inferred from completed-object truth"
+      },
+      "truth": [],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "new-20261006-round1-partial-phone",
+      "source": "../../tests/fixtures/vision-user-20261006-partial-watergun.png",
+      "group": "new-user-capture-20261006-unconfirmed-instance",
+      "sequence": "new-user-sequence-20261006",
+      "order": 0,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "First supplied capture. Original ID contains a preliminary phone guess, not truth. User confirmed the watergun category/rectangle on 2026-10-06, and capture02 shows its completed silhouette. Truth is evaluator-only; no later image or reference is used in this earlier frame.",
+      "hud": {
+        "source": "Manual reading of current source capture: remaining 37/45; watergun x1, phone x5, sunscreen x2. No truth-derived HUD.",
+        "counts": [
+          1,
+          5,
+          2
+        ],
+        "remaining": 37
+      },
+      "truth": [
+        {
+          "instance_id": "new-20261006-watergun-B",
+          "rect": {
+            "x": 3,
+            "width": 2,
+            "y": 2,
+            "height": 3
+          },
+          "item_index": 0,
+          "angle": null,
+          "anchor": 22,
+          "source": "User confirmation 2026-10-06 plus capture02.png completed watergun at rows 3-5 / columns 4-5. Continuous sprite angle unverified."
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "new-20261006-capture02-cell5",
+      "source": "../../tests/fixtures/vision-user-20261006-phone-strap.png",
+      "group": "new-user-capture-20261006-unconfirmed-instance",
+      "sequence": "new-user-sequence-20261006",
+      "order": 1,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "User-provided phone strap at row 1 column 6. Category and rectangle confirmed after the frozen baseline failed. Both captures in this sequence are tuning/regression evidence for the new algorithm, never independent validation.",
+      "hud": {
+        "counts": [
+          0,
+          5,
+          2
+        ],
+        "remaining": 30,
+        "source": "Manual reading of this screenshot: 30/45 unopened; watergun Finish x0, phone x5, sunscreen x2. Not inferred from truth."
+      },
+      "truth": [
+        {
+          "item_index": 1,
+          "angle": null,
+          "rect": {
+            "height": 1,
+            "y": 0,
+            "x": 3,
+            "width": 3
+          },
+          "instance_id": "new-20261006-phone-A",
+          "source": "User confirmation on 2026-10-06: phone strap, corrected occupied rectangle to row 1 columns 4-6 (three cells); no continuous angle truth.",
+          "anchor": 5
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "new-20261006-capture03-finish",
+      "source": "../../tests/fixtures/vision-user-20261006-phone-partial-finish.png",
+      "group": "new-user-capture-20261006-unconfirmed-instance",
+      "sequence": "new-user-sequence-20261006",
+      "order": 2,
+      "split": "tuning",
+      "kind": "real",
+      "round": "1",
+      "notes": "Third real capture supplied 2026-10-06, replayed after the two earlier frames for Finish-reference continuity. Manual visual HUD transcription: 24/45 remaining; watergun Finish x0, phone x3, sunscreen x2; values are not OCR and are not inferred from truth. Expected local fragment anchor is row 4, column 6 (1-based), anchor 32. Hidden occupied cells, local category truth, and continuous angle truth are unavailable. Same tuning sequence; not an independent holdout. 2026-10-07 foreground-refinement development: retained as tuning/regression, not independent validation.",
+      "hud": {
+        "source": "Manual visual reading of the supplied screenshot; not OCR and not truth-derived.",
+        "counts": [
+          0,
+          3,
+          2
+        ],
+        "remaining": 24
+      },
+      "truth": [
+        {
+          "anchor": 32,
+          "item_index": 1,
+          "rect": {
+            "x": 5,
+            "y": 1,
+            "height": 3,
+            "width": 1
+          },
+          "angle": null,
+          "instance_id": "new-20261006-phone-B",
+          "source": "Later complete raw WGC image in capture03 retrospective-verification.json; evaluation only, never matcher input."
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "new-20261007-round2-umbrella",
+      "source": "../../tests/fixtures/vision-user-20261007-umbrella-middle.png",
+      "group": "user-live-round2-20261006-07",
+      "sequence": "user-live-20261006-07-chronological",
+      "order": 0,
+      "split": "tuning",
+      "kind": "real",
+      "round": "2",
+      "notes": "User-supplied screenshot 2026-10-07. Visible partial fragment at row 2 column 5. Two completed phones at rows 1-3 column 9 and rows 3-5 column 3. Truth occupancy must not alter observed cells. Original source: C:\\Users\\admin\\AppData\\Local\\Temp\\codex-clipboard-c9616aa2-4393-47b2-b4ed-5ddf2c613d2f.png Replayed only as previously evaluated context before three new captures; excluded from new-sample denominator. 2026-10-07 foreground-refinement development: retained as tuning/regression, not independent validation. Earlier seed now belongs to this tuning sequence, rather than the historical standalone validation report.",
+      "hud": {
+        "remaining": 37,
+        "counts": [
+          1,
+          2,
+          3
+        ],
+        "source": "Manual reading of this screenshot HUD (37/45, card counts x1/x2/x3); independent of user occupancy truth. Experiment entry does not invoke OCR."
+      },
+      "truth": [
+        {
+          "anchor": 13,
+          "item_index": 1,
+          "rect": {
+            "x": 3,
+            "y": 1,
+            "width": 4,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "user-round2-umbrella-A",
+          "source": "User supplied before test: umbrella occupying row 2 columns 4-7 (1-based). No exact continuous sprite angle truth."
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "new-20261007-umbrella-handle",
+      "source": "../../tests/fixtures/vision-user-20261007-umbrella-handle.png",
+      "group": "user-live-round2-20261006-07",
+      "sequence": "user-live-20261006-07-chronological",
+      "order": 1,
+      "split": "tuning",
+      "kind": "real",
+      "round": "2",
+      "notes": "New supplied screenshot 1; expected 雨伞 L3C4C7. Truth is evaluator-only. Original source C:\\Users\\admin\\AppData\\Local\\Temp\\codex-clipboard-fdce61fe-8ef0-4d4a-a88e-a336f363e917.png. First user answer L2C4C7 was corrected by the user to L3C4C7 before the run; the former is a separate completed umbrella. 2026-10-07 foreground-refinement development: retained as tuning/regression, not independent validation.",
+      "hud": {
+        "remaining": 20,
+        "counts": [
+          0,
+          1,
+          2
+        ],
+        "source": "Manual reading of this screenshot HUD, separate from occupancy truth; production OCR tested separately."
+      },
+      "truth": [
+        {
+          "anchor": 24,
+          "item_index": 1,
+          "rect": {
+            "x": 3,
+            "y": 2,
+            "width": 4,
+            "height": 1
+          },
+          "angle": null,
+          "instance_id": "new-20261007-umbrella-handle-A",
+          "source": "User supplied 雨伞 L3C4C7 before testing (first screenshot corrected explicitly). Exact sprite angle unknown."
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "new-20261007-bow",
+      "source": "../../tests/fixtures/vision-user-20261007-bow.png",
+      "group": "user-live-round3-20261006-07",
+      "sequence": "user-live-20261006-07-chronological",
+      "order": 2,
+      "split": "tuning",
+      "kind": "real",
+      "round": "3",
+      "notes": "New supplied screenshot 2; expected 蝴蝶结 L1C8L2C9. Truth is evaluator-only. Original source C:\\Users\\admin\\AppData\\Local\\Temp\\codex-clipboard-93049a42-239a-44f3-86c2-8d1d36599415.png.  2026-10-07 foreground-refinement development: retained as tuning/regression, not independent validation.",
+      "hud": {
+        "remaining": 44,
+        "counts": [
+          1,
+          4,
+          3
+        ],
+        "source": "Manual reading of this screenshot HUD, separate from occupancy truth; production OCR tested separately."
+      },
+      "truth": [
+        {
+          "anchor": 16,
+          "item_index": 1,
+          "rect": {
+            "x": 7,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          },
+          "angle": null,
+          "instance_id": "new-20261007-bow-A",
+          "source": "User supplied 蝴蝶结 L1C8L2C9 before testing (first screenshot corrected explicitly). Exact sprite angle unknown."
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    },
+    {
+      "id": "new-20261007-swim-ring",
+      "source": "../../tests/fixtures/vision-user-20261007-swim-ring.png",
+      "group": "user-live-round3-20261006-07",
+      "sequence": "user-live-20261006-07-chronological",
+      "order": 3,
+      "split": "tuning",
+      "kind": "real",
+      "round": "3",
+      "notes": "New supplied screenshot 3; expected 游泳圈 L1C1L3C3. Truth is evaluator-only. Original source C:\\Users\\admin\\AppData\\Local\\Temp\\codex-clipboard-5ad6f476-6711-4b67-aed0-8fd5ba9e9fb9.png.  2026-10-07 foreground-refinement development: retained as tuning/regression, not independent validation.",
+      "hud": {
+        "remaining": 38,
+        "counts": [
+          1,
+          3,
+          2
+        ],
+        "source": "Manual reading of this screenshot HUD, separate from occupancy truth; production OCR tested separately."
+      },
+      "truth": [
+        {
+          "anchor": 20,
+          "item_index": 0,
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          },
+          "angle": null,
+          "instance_id": "new-20261007-swim-ring-A",
+          "source": "User supplied 游泳圈 L1C1L3C3 before testing (first screenshot corrected explicitly). Exact sprite angle unknown."
+        }
+      ],
+      "transform": null,
+      "must_remain_ambiguous": []
+    }
+  ]
+}

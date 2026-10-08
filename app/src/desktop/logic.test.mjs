@@ -9,13 +9,14 @@ import {
   canStartCalculation,
   filterMask,
   isCurrentResult,
+  projectSolverSnapshot,
   selectedProbabilities,
   selectionRect,
   shouldAcceptCapture,
   validItems,
   compareVersion,
   validSolverResult,
-  selectedInferredPlacements,
+  uniquePartialPlacements,
   mergeOverlayState,
   mergeRefreshState,
   canRequestRefresh,
@@ -43,6 +44,7 @@ const ready = (changes = {}) => ({
   ],
   completed_objects: [],
   candidate_constraints: [],
+  partial_placements: [],
   reference_ready: [true, true, true],
   card_fingerprints: ['a', 'b', 'c'],
   finish: [false, false, false],
@@ -91,7 +93,7 @@ test('PC selection skips the Japanese launcher and selects the game window', () 
   assert.equal(chooseWindow([launcher, game], '10'), '10');
 });
 
-test('only confirmed ready boards without uncertain cells can calculate', () => {
+test('only confirmed ready boards with a valid solver projection can calculate', () => {
   assert.equal(canCalculate(ready()), true);
   for (const status of ['manual', 'searching', 'uncertain', 'waiting_item', 'paused', 'away', 'error']) {
     assert.equal(canCalculate(ready({ status })), false);
@@ -103,6 +105,110 @@ test('only confirmed ready boards without uncertain cells can calculate', () => 
   const completedCells = Array(45).fill('unknown');
   completedCells[8] = 'completed';
   assert.equal(canCalculate(ready({ cells: completedCells })), true);
+});
+
+test('duplicate fragment footprints retire one item without mutating the captured board or counts', () => {
+  const placement = { item_index: 0, x: 0, y: 0, width: 2, height: 1 };
+  const cells = Array(45).fill('unknown');
+  cells[0] = 'item0';
+  cells[1] = 'uncertain';
+  const snapshot = ready({ cells, partial_placements: [placement, { ...placement }], remaining: 2,
+    candidate_constraints: [{ anchor: 0, item_index: 0, placements: [placement] }] });
+  const original = structuredClone(snapshot);
+  const input = projectSolverSnapshot(snapshot);
+  assert.ok(input);
+  assert.equal(input.items[0].remaining_count, 1);
+  assert.deepEqual(input.cells.slice(0, 3), ['completed', 'completed', 'unknown']);
+  assert.deepEqual(input.candidate_constraints, [], 'local candidate guesses never enter the projected solver input');
+  assert.deepEqual(uniquePartialPlacements(snapshot), [placement]);
+  assert.notStrictEqual(input.cells, snapshot.cells);
+  for (let item = 0; item < 3; item += 1) assert.notStrictEqual(input.items[item], snapshot.items[item]);
+  assert.deepEqual(snapshot, original, 'raw observations, HUD counts, items and candidates remain intact');
+  assert.equal(canCalculate(snapshot), true, 'resolved raw uncertain and item fragments may calculate');
+});
+
+test('two distinct footprints of the same item type decrement twice, including a rotated footprint', () => {
+  const cells = Array(45).fill('unknown');
+  cells[0] = 'uncertain';
+  cells[22] = 'item0';
+  const placements = [
+    { item_index: 0, x: 0, y: 0, width: 2, height: 1 },
+    { item_index: 0, x: 4, y: 2, width: 1, height: 2 },
+  ];
+  const input = projectSolverSnapshot(ready({ cells, partial_placements: placements }));
+  assert.ok(input);
+  assert.equal(input.items[0].remaining_count, 0);
+  assert.deepEqual([0, 1, 22, 31].map((index) => input.cells[index]), Array(4).fill('completed'));
+  assert.equal(input.items[1].remaining_count, 1);
+});
+
+test('already completed Finish items use the HUD count without another decrement', () => {
+  const cells = Array(45).fill('unknown');
+  cells[0] = cells[1] = 'completed';
+  const snapshot = ready({ cells, finish: [true, false, false],
+    items: ready().items.map((item, index) => index === 0 ? { ...item, remaining_count: 0 } : item),
+    completed_objects: [{ item_index: 0, x: 0, y: 0, width: 2, height: 1 }] });
+  const input = projectSolverSnapshot(snapshot);
+  assert.ok(input);
+  assert.equal(input.items[0].remaining_count, 0);
+  assert.deepEqual(input.cells, cells);
+  assert.equal(canCalculate(snapshot), true);
+  assert.equal(projectSolverSnapshot({ ...snapshot,
+    partial_placements: [{ item_index: 0, x: 0, y: 0, width: 2, height: 1 }] }), null,
+  'a stale partial footprint cannot double-count a completed object');
+});
+
+test('projection rejects insufficient counts, incompatible pixels, and incomplete fragment coverage', () => {
+  const placement = { item_index: 0, x: 0, y: 0, width: 2, height: 1 };
+  const cells = Array(45).fill('unknown');
+  cells[0] = 'uncertain';
+  const partial = ready({ cells, partial_placements: [placement] });
+  const changedCell = (index, cell) => cells.map((current, position) => position === index ? cell : current);
+  const cases = [
+    ['no remaining item', { items: partial.items.map((item, index) => index === 0 ? { ...item, remaining_count: 0 } : item) }],
+    ['empty inside footprint', { cells: changedCell(1, 'empty') }],
+    ['completed inside footprint', { cells: changedCell(1, 'completed') }],
+    ['manually corrected other item inside footprint', { cells: changedCell(1, 'item1') }],
+    ['no observed fragment', { cells: changedCell(0, 'unknown') }],
+    ['unresolved uncertain outside footprint', { cells: changedCell(2, 'uncertain') }],
+    ['unresolved typed item outside footprint', { cells: changedCell(2, 'item0') }],
+    ['shape differs from the item', { partial_placements: [{ ...placement, width: 3 }] }],
+    ['out of bounds', { partial_placements: [{ ...placement, x: 8 }] }],
+    ['invalid item index', { partial_placements: [{ ...placement, item_index: 3 }] }],
+    ['fractional position', { partial_placements: [{ ...placement, x: 0.5 }] }],
+    ['malformed placement', { partial_placements: [null] }],
+    ['malformed placement list', { partial_placements: null }],
+    ['invalid raw cell', { cells: changedCell(2, 'invalid') }],
+    ['invalid raw items', { items: [null, ...partial.items.slice(1)] }],
+  ];
+  for (const [reason, change] of cases) {
+    const snapshot = { ...partial, ...change };
+    assert.equal(projectSolverSnapshot(snapshot), null, reason);
+    assert.equal(canCalculate(snapshot), false, reason);
+  }
+  const second = { ...placement, x: 3 };
+  const twoItems = { ...partial, cells: changedCell(3, 'item0'), partial_placements: [placement, second],
+    items: partial.items.map((item, index) => index === 0 ? { ...item, remaining_count: 1 } : item) };
+  assert.equal(projectSolverSnapshot(twoItems), null, 'one remaining item cannot retire two distinct footprints');
+});
+
+test('distinct overlapping footprints are rejected instead of merged as one item', () => {
+  const cells = Array(45).fill('unknown');
+  cells[0] = cells[2] = 'uncertain';
+  const partial_placements = [
+    { item_index: 0, x: 0, y: 0, width: 2, height: 1 },
+    { item_index: 0, x: 1, y: 0, width: 2, height: 1 },
+  ];
+  assert.equal(projectSolverSnapshot(ready({ cells, partial_placements })), null);
+});
+
+test('legacy snapshots without partial placements preserve completed-only calculation', () => {
+  const { partial_placements: _legacyMissing, ...snapshot } = ready();
+  assert.ok(projectSolverSnapshot(snapshot));
+  assert.equal(canCalculate(snapshot), true);
+  assert.deepEqual(uniquePartialPlacements(snapshot), []);
+  snapshot.cells[0] = 'uncertain';
+  assert.equal(projectSolverSnapshot(snapshot), null);
 });
 
 test('partial items stop calculation and invalidate old results until completed in both modes', () => {
@@ -265,20 +371,24 @@ test('all highest-probability unopened cells are highlighted', () => {
   assert.deepEqual([...bestCells(Array(45).fill(0), cells)], []);
 });
 
-test('inference uses only successful solver placements and respects all item filters', () => {
-  const placements = [
-    { item_index: 0, x: 0, y: 1, width: 2, height: 1 },
-    { item_index: 1, x: 2, y: 2, width: 1, height: 3 },
-    { item_index: 2, x: 7, y: 3, width: 2, height: 2 },
-  ];
-  const result = solverResult({ precision: 'sampled', samples: 100000, inferred_placements: placements });
-  for (let mask = 1; mask <= 7; mask += 1) {
-    assert.deepEqual(selectedInferredPlacements(result, mask), placements.filter(({ item_index }) => mask & (1 << item_index)));
+test('native footprints remain visible across probability filters and never become best cells', () => {
+  const cells = Array(45).fill('unknown');
+  cells[0] = 'uncertain';
+  const placement = { item_index: 0, x: 0, y: 0, width: 2, height: 1 };
+  const snapshot = ready({ cells, partial_placements: [placement] });
+  const input = projectSolverSnapshot(snapshot);
+  assert.ok(input);
+  const result = solverResult({ precision: 'sampled', samples: 100000,
+    inferred_placements: [{ item_index: 2, x: 7, y: 3, width: 2, height: 2 }] });
+  for (const probabilities of result.probs) {
+    probabilities[0] = probabilities[1] = 1;
+    probabilities[2] = 0.75;
   }
-  assert.deepEqual(selectedInferredPlacements({ ...result, error: 'no_valid_configuration' }, 7), []);
-  assert.deepEqual(selectedInferredPlacements(result, 0), []);
-  const sampledFull = solverResult({ precision: 'sampled', probs: Array.from({ length: 8 }, () => Array(45).fill(1)) });
-  assert.deepEqual(selectedInferredPlacements(sampledFull, 7), [], 'sampled 100 percent alone never creates inferred rectangles');
+  for (let mask = 1; mask <= 7; mask += 1) {
+    assert.deepEqual([...bestCells(selectedProbabilities(result.probs, mask), input.cells)], [2]);
+    assert.deepEqual(uniquePartialPlacements(snapshot), [placement]);
+  }
+  assert.deepEqual(uniquePartialPlacements(ready()), [], 'WASM placements or sampled 100 percent alone never create native footprints');
 });
 
 test('incomplete probability matrices and out-of-board inference are rejected', () => {

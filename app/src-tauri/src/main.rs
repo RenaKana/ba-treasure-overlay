@@ -119,6 +119,7 @@ struct CaptureState {
     captured_at_ms: Option<u64>,
     completed_objects: Vec<vision::CompletedObject>,
     candidate_constraints: Vec<vision::PlacementConstraint>,
+    partial_placements: Vec<InferredPlacement>,
     reference_ready: [bool; 3],
     card_fingerprints: [Option<String>; 3],
     finish: [bool; 3],
@@ -266,6 +267,9 @@ impl Default for Session {
 #[derive(Default)]
 struct AppState {
     session: Mutex<Session>,
+    // Explicit, one-use handoff when replacing the executable mid-round.
+    // Ordinary launches never load image history or persist inferred state.
+    resume_frame: Mutex<Option<std::path::PathBuf>>,
     // If both locks are needed, always acquire session before control. Never
     // call native start/stop/join while either lock is held.
     control: Mutex<Option<ActiveControl>>,
@@ -510,8 +514,11 @@ fn present_overlay(app: &tauri::AppHandle) {
         hide_overlay(app);
         return;
     }
-    let (Some(result), Some(snap), Some(w)) = (s.result.as_ref(), s.latest.as_ref(), app.get_webview_window("overlay"))
-    else {
+    let (Some(result), Some(snap), Some(w)) = (
+        s.result.as_ref(),
+        s.latest.as_ref(),
+        app.get_webview_window("overlay"),
+    ) else {
         return;
     };
     let Some(board) = snap.board else {
@@ -530,31 +537,35 @@ fn present_overlay(app: &tauri::AppHandle) {
         (board.height * height).round().max(1.0) as u32,
     );
     let payload = OverlayState {
-            session_id: result.session_id,
-            round_epoch: result.round_epoch,
-            revision: result.revision,
-            probabilities: result.probabilities.clone(),
-            cells: result.cells.clone(),
-            precision: result.precision.clone(),
-            message: if guard.profile.update_mode == UpdateMode::Manual {
-                format!("手动快照 · {}", result.message)
-            } else {
-                result.message.clone()
-            },
-            visible: true,
-            inferred_placements: result.inferred_placements.clone(),
-            emphasize_best: result.emphasize_best,
-        };
+        session_id: result.session_id,
+        round_epoch: result.round_epoch,
+        revision: result.revision,
+        probabilities: result.probabilities.clone(),
+        cells: result.cells.clone(),
+        precision: result.precision.clone(),
+        message: if guard.profile.update_mode == UpdateMode::Manual {
+            format!("手动快照 · {}", result.message)
+        } else {
+            result.message.clone()
+        },
+        visible: true,
+        inferred_placements: result.inferred_placements.clone(),
+        emphasize_best: result.emphasize_best,
+    };
     let mut presentation = state.presentation.lock().unwrap();
     let previous = &mut presentation.overlay;
     if previous.position_changed(position)
-        && w.set_position(PhysicalPosition::new(position.0, position.1)).is_ok() {
+        && w.set_position(PhysicalPosition::new(position.0, position.1))
+            .is_ok()
+    {
         previous.position = Some(position);
     }
     if previous.size_changed(size) && w.set_size(PhysicalSize::new(size.0, size.1)).is_ok() {
         previous.size = Some(size);
     }
-    if previous.payload_changed(&payload) && app.emit_to("overlay", "overlay-state", &payload).is_ok() {
+    if previous.payload_changed(&payload)
+        && app.emit_to("overlay", "overlay-state", &payload).is_ok()
+    {
         previous.payload = Some(payload);
     }
     // Tao's normal show() uses SW_SHOW after its initial window creation and
@@ -600,6 +611,7 @@ fn changed_snapshot(s: &mut Session, status: &str, message: &str) -> CaptureStat
         captured_at_ms: None,
         completed_objects: vec![],
         candidate_constraints: vec![],
+        partial_placements: vec![],
         reference_ready: [false; 3],
         card_fingerprints: [None, None, None],
         finish: [false; 3],
@@ -607,6 +619,7 @@ fn changed_snapshot(s: &mut Session, status: &str, message: &str) -> CaptureStat
     snapshot.revision = s.revision;
     snapshot.round_epoch = s.round_epoch;
     snapshot.status = status.into();
+    snapshot.partial_placements.clear();
     snapshot.message = message.into();
     snapshot.items = s.items.clone();
     snapshot.confirmed = s.confirmed;
@@ -630,11 +643,7 @@ fn geometry_changed(s: &mut Session) -> CaptureState {
     } else {
         ("searching", "窗口或游戏区域变化，等待画面稳定")
     };
-    let mut snapshot = changed_snapshot(
-        s,
-        status,
-        message,
-    );
+    let mut snapshot = changed_snapshot(s, status, message);
     s.refresh_deadline_ms = deadline;
     snapshot.refreshing = deadline.is_some();
     snapshot.board = None;
@@ -644,6 +653,7 @@ fn geometry_changed(s: &mut Session) -> CaptureState {
     snapshot.confirmed = false;
     snapshot.completed_objects.clear();
     snapshot.candidate_constraints.clear();
+    snapshot.partial_placements.clear();
     snapshot.frame_url.clear();
     snapshot.captured_at_ms = None;
     s.latest = Some(snapshot.clone());
@@ -692,8 +702,12 @@ fn expire_manual_refresh(s: &mut Session, now: u64) -> Option<CaptureState> {
     }
 }
 fn missing_frame_snapshot(s: &mut Session, now: u64) -> Option<CaptureState> {
-    if s.no_frame_error_reported || now.saturating_sub(s.last_frame_ms) <= 5000
-        || s.latest.as_ref().is_some_and(|c| c.captured_at_ms.is_some()) {
+    if s.no_frame_error_reported
+        || now.saturating_sub(s.last_frame_ms) <= 5000
+        || s.latest
+            .as_ref()
+            .is_some_and(|c| c.captured_at_ms.is_some())
+    {
         return None;
     }
     s.no_frame_error_reported = true;
@@ -719,6 +733,7 @@ fn missing_frame_snapshot(s: &mut Session, now: u64) -> Option<CaptureState> {
         captured_at_ms: None,
         completed_objects: vec![],
         candidate_constraints: vec![],
+        partial_placements: vec![],
         reference_ready: [false; 3],
         card_fingerprints: [None, None, None],
         finish: [false; 3],
@@ -771,31 +786,63 @@ fn cover_reference_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, St
 }
 fn cover_images(samples: &[CoverSample]) -> Result<Vec<String>, String> {
     use image::ImageEncoder;
-    samples.iter().map(|sample| {
-        if !sample.valid() { return Err("未翻开样本文件无法读取，请清除或重新选择".into()); }
-        let rgb: Vec<u8> = sample.rgb.iter().flatten().copied().collect();
-        let mut bytes = Vec::new();
-        image::codecs::png::PngEncoder::new(&mut bytes)
-            .write_image(&rgb, SAMPLE_SIZE as u32, SAMPLE_SIZE as u32, image::ExtendedColorType::Rgb8)
-            .map_err(|_| "未翻开样本文件无法读取，请清除或重新选择".to_owned())?;
-        Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
-    }).collect()
+    samples
+        .iter()
+        .map(|sample| {
+            if !sample.valid() {
+                return Err("未翻开样本文件无法读取，请清除或重新选择".into());
+            }
+            let rgb: Vec<u8> = sample.rgb.iter().flatten().copied().collect();
+            let mut bytes = Vec::new();
+            image::codecs::png::PngEncoder::new(&mut bytes)
+                .write_image(
+                    &rgb,
+                    SAMPLE_SIZE as u32,
+                    SAMPLE_SIZE as u32,
+                    image::ExtendedColorType::Rgb8,
+                )
+                .map_err(|_| "未翻开样本文件无法读取，请清除或重新选择".to_owned())?;
+            Ok(format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            ))
+        })
+        .collect()
 }
 fn cover_info(samples: &[CoverSample]) -> Result<CoverReferenceInfo, String> {
-    Ok(CoverReferenceInfo { count: samples.len(), images: cover_images(samples)?, error: None })
+    Ok(CoverReferenceInfo {
+        count: samples.len(),
+        images: cover_images(samples)?,
+        error: None,
+    })
 }
 #[tauri::command]
 fn get_cover_reference(app: tauri::AppHandle) -> CoverReferenceInfo {
-    let result = cover_reference_path(&app).and_then(|path| cover_reference::load(&path))
+    let result = cover_reference_path(&app)
+        .and_then(|path| cover_reference::load(&path))
         .and_then(|samples| cover_info(&samples));
-    result.unwrap_or_else(|error| CoverReferenceInfo { count: 0, images: Vec::new(), error: Some(error) })
+    result.unwrap_or_else(|error| CoverReferenceInfo {
+        count: 0,
+        images: Vec::new(),
+        error: Some(error),
+    })
 }
 fn freeze_cover_selection(s: &mut Session) -> Result<CoverSelection, String> {
-    let candidate = s.cover_candidates.as_ref()
-        .filter(|c| s.hwnd != 0 && c.session_id == s.id && c.generation == s.capture.generation
-            && c.round_epoch == s.round_epoch)
-        .ok_or("请先刷新游戏画面，再选择未翻开样本")?.clone();
-    let response = CoverSelection { token: candidate.token, images: candidate.images.clone() };
+    let candidate = s
+        .cover_candidates
+        .as_ref()
+        .filter(|c| {
+            s.hwnd != 0
+                && c.session_id == s.id
+                && c.generation == s.capture.generation
+                && c.round_epoch == s.round_epoch
+        })
+        .ok_or("请先刷新游戏画面，再选择未翻开样本")?
+        .clone();
+    let response = CoverSelection {
+        token: candidate.token,
+        images: candidate.images.clone(),
+    };
     s.cover_selection = Some(candidate);
     Ok(response)
 }
@@ -809,7 +856,12 @@ fn begin_cover_selection(
     let state = app.state::<AppState>();
     let (selection, snapshot) = {
         let mut s = state.session.lock().unwrap();
-        require_version(&s, expected_session, expected_round_epoch, expected_revision)?;
+        require_version(
+            &s,
+            expected_session,
+            expected_round_epoch,
+            expected_revision,
+        )?;
         let selection = freeze_cover_selection(&mut s)?;
         let snapshot = changed_snapshot(&mut s, "manual", "正在选择未翻开样本");
         (selection, snapshot)
@@ -819,19 +871,39 @@ fn begin_cover_selection(
     refresh_overlay(&app);
     Ok(selection)
 }
-fn selected_cover_samples(s: &Session, token: u64, indices: &[usize]) -> Result<Vec<CoverSample>, String> {
+fn selected_cover_samples(
+    s: &Session,
+    token: u64,
+    indices: &[usize],
+) -> Result<Vec<CoverSample>, String> {
     // Frozen appearance samples remain valid if capture restarts after a resize.
     // They no longer depend on the current frame's geometry or generation.
-    let candidate = s.cover_selection.as_ref()
-        .filter(|c| c.token == token && c.session_id == s.id
-            && c.round_epoch == s.round_epoch && s.hwnd != 0)
+    let candidate = s
+        .cover_selection
+        .as_ref()
+        .filter(|c| {
+            c.token == token
+                && c.session_id == s.id
+                && c.round_epoch == s.round_epoch
+                && s.hwnd != 0
+        })
         .ok_or("样本选择已失效，请重新选择")?;
-    if indices.is_empty() { return Err("请选择至少一个未翻开的格子".into()); }
+    if indices.is_empty() {
+        return Err("请选择至少一个未翻开的格子".into());
+    }
     let mut unique = indices.to_vec();
     unique.sort_unstable();
     unique.dedup();
-    unique.into_iter().map(|index| candidate.samples.get(index).cloned()
-        .ok_or_else(|| "样本选择已失效，请重新选择".to_owned())).collect()
+    unique
+        .into_iter()
+        .map(|index| {
+            candidate
+                .samples
+                .get(index)
+                .cloned()
+                .ok_or_else(|| "样本选择已失效，请重新选择".to_owned())
+        })
+        .collect()
 }
 fn replace_cover_samples(s: &mut Session, samples: Vec<CoverSample>) {
     s.recognizer = Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(&samples)));
@@ -845,7 +917,11 @@ fn cover_selection_finished(s: &mut Session, message: &str) -> CaptureState {
     changed_snapshot(s, status, message)
 }
 #[tauri::command]
-fn save_cover_selection(app: tauri::AppHandle, token: u64, indices: Vec<usize>) -> Result<CoverReferenceInfo, String> {
+fn save_cover_selection(
+    app: tauri::AppHandle,
+    token: u64,
+    indices: Vec<usize>,
+) -> Result<CoverReferenceInfo, String> {
     let state = app.state::<AppState>();
     let (info, snapshot) = {
         let mut s = state.session.lock().unwrap();
@@ -886,10 +962,19 @@ fn clear_cover_reference(app: tauri::AppHandle) -> Result<CoverReferenceInfo, St
         let mut s = state.session.lock().unwrap();
         cover_reference::save(&cover_reference_path(&app)?, &[])?;
         replace_cover_samples(&mut s, Vec::new());
-        if s.hwnd != 0 { Some(cover_selection_finished(&mut s, "已清除固定样本，请刷新棋盘")) } else { None }
+        if s.hwnd != 0 {
+            Some(cover_selection_finished(
+                &mut s,
+                "已清除固定样本，请刷新棋盘",
+            ))
+        } else {
+            None
+        }
     };
     hide_overlay(&app);
-    if let Some(snapshot) = snapshot { let _ = app.emit_to("main", "capture-state", snapshot); }
+    if let Some(snapshot) = snapshot {
+        let _ = app.emit_to("main", "capture-state", snapshot);
+    }
     refresh_overlay(&app);
     cover_info(&[])
 }
@@ -900,10 +985,9 @@ fn item_fits_board(width: u32, height: u32) -> bool {
 }
 fn valid_items(items: &[ItemSpec]) -> bool {
     items.len() == 3
-        && items.iter().all(|i| {
-            item_fits_board(i.width, i.height)
-                && (0..=7).contains(&i.remaining_count)
-        })
+        && items
+            .iter()
+            .all(|i| item_fits_board(i.width, i.height) && (0..=7).contains(&i.remaining_count))
         && items
             .iter()
             .map(|i| i.width * i.height * i.remaining_count as u32)
@@ -915,11 +999,73 @@ fn valid_items(items: &[ItemSpec]) -> bool {
 fn awaiting_item_completion(cells: &[String], remaining: Option<u32>) -> bool {
     cells.len() == vision::COLS * vision::ROWS
         && remaining.is_some_and(|n| {
-            n as usize == cells.iter().filter(|cell| cell.as_str() == "unknown").count()
+            n as usize
+                == cells
+                    .iter()
+                    .filter(|cell| cell.as_str() == "unknown")
+                    .count()
         })
-        && cells.iter().any(|cell| matches!(cell.as_str(), "item0" | "item1" | "item2" | "uncertain"))
+        && cells
+            .iter()
+            .any(|cell| matches!(cell.as_str(), "item0" | "item1" | "item2" | "uncertain"))
 }
-fn item_reading_error(items: &[ItemSpec]) -> String {
+
+/// A solver/display projection only. Captured cells and HUD inventory stay intact.
+fn project_partial_board(
+    cells: &[String],
+    items: &[ItemSpec],
+    placements: &[InferredPlacement],
+) -> Option<(Vec<String>, Vec<ItemSpec>)> {
+    if cells.len() != 45 || !valid_items(items) {
+        return None;
+    }
+    let mut projected = cells.to_vec();
+    let mut inventory = items.to_vec();
+    let mut occupied = [false; 45];
+    let mut seen: Vec<&InferredPlacement> = Vec::new();
+    for p in placements {
+        if seen.contains(&p) {
+            continue;
+        }
+        let item = inventory.get_mut(p.item_index)?;
+        if p.width == 0
+            || p.height == 0
+            || p.x >= 9
+            || p.y >= 5
+            || p.width > 9 - p.x
+            || p.height > 5 - p.y
+            || !((p.width == item.width as usize && p.height == item.height as usize)
+                || (p.width == item.height as usize && p.height == item.width as usize))
+            || item.remaining_count <= 0
+        {
+            return None;
+        }
+        let label = format!("item{}", p.item_index);
+        let mut observed_fragment = false;
+        for y in p.y..p.y + p.height {
+            for x in p.x..p.x + p.width {
+                let index = y * 9 + x;
+                let cell = cells[index].as_str();
+                if occupied[index] || !(cell == "unknown" || cell == "uncertain" || cell == label) {
+                    return None;
+                }
+                observed_fragment |= cell != "unknown";
+                occupied[index] = true;
+                projected[index] = "completed".into();
+            }
+        }
+        if !observed_fragment {
+            return None;
+        }
+        item.remaining_count -= 1;
+        seen.push(p);
+    }
+    projected
+        .iter()
+        .all(|c| matches!(c.as_str(), "unknown" | "empty" | "completed"))
+        .then_some((projected, inventory))
+}
+fn item_reading_error(items: &[ItemSpec], count_errors: Option<&[Option<String>; 3]>) -> String {
     if items.len() != 3 {
         return "未读全三张物品卡片，请刷新或校正".into();
     }
@@ -939,7 +1085,14 @@ fn item_reading_error(items: &[ItemSpec]) -> String {
     }
     let counts = slots(|i| i.remaining_count < 0);
     if !counts.is_empty() {
+        let details = items.iter().enumerate().filter_map(|(index, item)| {
+            if item.remaining_count >= 0 { return None; }
+            count_errors.and_then(|reasons| reasons.get(index))
+                .and_then(Option::as_deref)
+                .map(|reason| format!("物品 {} 的数量识别失败：{reason}", index + 1))
+        }).collect::<Vec<_>>();
         errors.push(format!("未读到物品 {counts} 的剩余件数"));
+        errors.extend(details);
     }
     let large = slots(|i| i.width > 0 && i.height > 0 && !item_fits_board(i.width, i.height));
     if !large.is_empty() {
@@ -1014,7 +1167,12 @@ fn create_native_capture(app: &tauri::AppHandle, ticket: CaptureTicket) -> Resul
         MinimumUpdateIntervalSettings::Default,
         DirtyRegionSettings::Default,
         ColorFormat::Rgba8,
-        (app.clone(), ticket.session_id, ticket.generation, ticket.hwnd),
+        (
+            app.clone(),
+            ticket.session_id,
+            ticket.generation,
+            ticket.hwnd,
+        ),
     );
     Capturer::start_free_threaded(settings).map_err(|e| format!("WGC 捕获失败：{e}"))
 }
@@ -1071,16 +1229,31 @@ fn start_capture(app: tauri::AppHandle, hwnd: i64) -> Result<u64, String> {
         let window = window_geometry(hwnd);
         let old = state.control.lock().unwrap().take();
         *s = Session {
-            id, hwnd, last_frame_ms: now_ms(), profile: saved_profile(&app),
-            recognizer: Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(&cover_samples))),
+            id,
+            hwnd,
+            last_frame_ms: now_ms(),
+            profile: saved_profile(&app),
+            recognizer: Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(
+                &cover_samples,
+            ))),
             cover_samples,
             capture: CaptureLifecycle::new(window, now_ms()),
             ..Session::default()
         };
-        (CaptureTicket { session_id: id, generation: s.capture.generation, hwnd, window }, old)
+        (
+            CaptureTicket {
+                session_id: id,
+                generation: s.capture.generation,
+                hwnd,
+                window,
+            },
+            old,
+        )
     };
     refresh_overlay(&app);
-    if let Some(old) = old { let _ = old.control.stop(); }
+    if let Some(old) = old {
+        let _ = old.control.stop();
+    }
     {
         let mut s = state.session.lock().unwrap();
         if !ticket.current(&s) {
@@ -1090,7 +1263,9 @@ fn start_capture(app: tauri::AppHandle, hwnd: i64) -> Result<u64, String> {
     }
     let control = create_native_capture(&app, ticket).map_err(|error| {
         let mut s = state.session.lock().unwrap();
-        if ticket.current(&s) { s.hwnd = 0; }
+        if ticket.current(&s) {
+            s.hwnd = 0;
+        }
         release_capture_worker(&mut s, ticket);
         error
     })?;
@@ -1100,29 +1275,54 @@ fn start_capture(app: tauri::AppHandle, hwnd: i64) -> Result<u64, String> {
         release_capture_worker(&mut s, ticket);
         if installed && ticket.current(&s) && s.profile.update_mode == UpdateMode::Manual {
             Some(changed_snapshot(&mut s, "manual", "点击刷新读取当前棋盘"))
-        } else { None }
+        } else {
+            None
+        }
     };
-    if let Some(snapshot) = snapshot { let _ = app.emit_to("main", "capture-state", snapshot); }
+    if let Some(snapshot) = snapshot {
+        let _ = app.emit_to("main", "capture-state", snapshot);
+    }
     Ok(ticket.session_id)
 }
 
 fn capture_failure(
-    s: &mut Session, ticket: CaptureTicket, error: &str, teardown_failed: bool,
+    s: &mut Session,
+    ticket: CaptureTicket,
+    error: &str,
+    teardown_failed: bool,
 ) -> Option<CaptureState> {
-    if s.id != ticket.session_id || s.hwnd != ticket.hwnd { return None; }
+    if s.id != ticket.session_id || s.hwnd != ticket.hwnd {
+        return None;
+    }
     if !teardown_failed && !ticket.current(s) {
         release_capture_worker(s, ticket);
         return None;
     }
-    if !s.capture.fail(ticket.generation) { return None; }
+    if !s.capture.fail(ticket.generation) {
+        return None;
+    }
     // A terminal failure finishes an explicit refresh with this error;
     // successful rebinds never change its original deadline.
-    Some(changed_snapshot(s, "error", &format!("重新建立捕获失败，请重新连接：{error}")))
+    Some(changed_snapshot(
+        s,
+        "error",
+        &format!("重新建立捕获失败，请重新连接：{error}"),
+    ))
 }
 
-fn rebuild_failure(app: &tauri::AppHandle, ticket: CaptureTicket, error: String, teardown_failed: bool) {
+fn rebuild_failure(
+    app: &tauri::AppHandle,
+    ticket: CaptureTicket,
+    error: String,
+    teardown_failed: bool,
+) {
     let state = app.state::<AppState>();
-    let snapshot = capture_failure(&mut state.session.lock().unwrap(), ticket, &error, teardown_failed);
+    let snapshot = capture_failure(
+        &mut state.session.lock().unwrap(),
+        ticket,
+        &error,
+        teardown_failed,
+    );
     if let Some(snapshot) = snapshot {
         let _ = app.emit_to("main", "capture-state", snapshot);
         refresh_overlay(app);
@@ -1167,14 +1367,28 @@ fn schedule_capture_rebuild(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let work = {
         let mut s = state.session.lock().unwrap();
-        if s.hwnd == 0 || window_minimized(s.hwnd) || state.quitting.load(Ordering::Relaxed) { return; }
-        let Some((generation, window)) = s.capture.claim(now_ms()) else { return; };
-        let ticket = CaptureTicket { session_id: s.id, generation, hwnd: s.hwnd, window };
+        if s.hwnd == 0 || window_minimized(s.hwnd) || state.quitting.load(Ordering::Relaxed) {
+            return;
+        }
+        let Some((generation, window)) = s.capture.claim(now_ms()) else {
+            return;
+        };
+        let ticket = CaptureTicket {
+            session_id: s.id,
+            generation,
+            hwnd: s.hwnd,
+            window,
+        };
         let mut slot = state.control.lock().unwrap();
         // Only detach this connection's retired generation.
-        let old = if slot.as_ref().is_some_and(|c| ticket.owns_retired_control(c.session_id, c.generation)) {
+        let old = if slot
+            .as_ref()
+            .is_some_and(|c| ticket.owns_retired_control(c.session_id, c.generation))
+        {
             slot.take()
-        } else { None };
+        } else {
+            None
+        };
         s.geometry.reset_frames();
         (ticket, old)
     };
@@ -1330,7 +1544,8 @@ fn calibrate(
         if snap.width == 0 || snap.height == 0 {
             return Err("请先刷新取得画面，再框选棋盘".into());
         }
-        let content = snap.content_rect_px
+        let content = snap
+            .content_rect_px
             .ok_or("尚未定位游戏内容区，请恢复清晰画面后刷新")?;
         // Keep existing 16:9 profiles in the board's center-anchored canvas.
         let [x, y, w, h] = vision::layout_region(content, vision::LayoutAnchor::Center);
@@ -1344,7 +1559,9 @@ fn calibrate(
             return Err("棋盘必须位于游戏内容区域内".into());
         }
         s.profile.board = Some(r);
-        s.recognizer = Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(&s.cover_samples)));
+        s.recognizer = Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(
+            &s.cover_samples,
+        )));
         s.cover_candidates = None;
         s.cover_selection = None;
         s.reference_initializing = true;
@@ -1365,7 +1582,10 @@ fn confirm_items(
     expected_revision: u64,
 ) -> Result<(), String> {
     if !valid_items(&items) {
-        return Err("需要三类物品：尺寸为正整数且旋转后能放入9×5棋盘、剩余件数0–7，剩余面积合计不超过45格".into());
+        return Err(
+            "需要三类物品：尺寸为正整数且旋转后能放入9×5棋盘、剩余件数0–7，剩余面积合计不超过45格"
+                .into(),
+        );
     }
     let state = app.state::<AppState>();
     let (profile, snapshot) = {
@@ -1433,7 +1653,9 @@ async fn correct_cell(
 }
 fn clear_round(s: &mut Session) {
     s.round_epoch += 1;
-    s.recognizer = Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(&s.cover_samples)));
+    s.recognizer = Arc::new(Mutex::new(vision::Recognizer::with_cover_samples(
+        &s.cover_samples,
+    )));
     s.cover_candidates = None;
     s.cover_selection = None;
     s.items = unread_items();
@@ -1566,28 +1788,29 @@ fn render_overlay(app: tauri::AppHandle, result: OverlayResult) -> Result<(), St
         {
             return Err("计算结果已过期".into());
         }
+        let latest = s.latest.as_ref().unwrap();
+        let mut expected_placements = Vec::new();
+        for placement in &latest.partial_placements {
+            if !expected_placements.contains(placement) {
+                expected_placements.push(placement.clone());
+            }
+        }
+        let projected =
+            project_partial_board(&latest.cells, &latest.items, &latest.partial_placements)
+                .ok_or("局部物品占格与棋盘不一致")?;
         if result.probabilities.len() != 45
             || result.cells.len() != 45
             || result
                 .probabilities
                 .iter()
                 .any(|p| !p.is_finite() || *p < 0.0 || *p > 1.0)
-            || result.cells != s.latest.as_ref().unwrap().cells
-            || result.inferred_placements.iter().any(|p| {
-                !s.latest
-                    .as_ref()
-                    .unwrap()
-                    .candidate_constraints
-                    .iter()
-                    .any(|c| {
-                        c.item_index == p.item_index
-                            && c.placements.len() == 1
-                            && c.placements[0].x == p.x
-                            && c.placements[0].y == p.y
-                            && c.placements[0].width == p.width
-                            && c.placements[0].height == p.height
-                    })
-            })
+            || result.cells != projected.0
+            || result.inferred_placements != expected_placements
+            || result
+                .cells
+                .iter()
+                .zip(&result.probabilities)
+                .any(|(cell, probability)| cell != "unknown" && *probability != 0.0)
         {
             return Err("概率或棋盘数据不一致".into());
         }
@@ -1665,7 +1888,12 @@ fn overlay_painted(app: tauri::AppHandle, session_id: u64, round_epoch: u64, rev
     }
 }
 
-fn record_capture_diagnostics(app: &tauri::AppHandle, s: &Session, snap: &CaptureState, stage: &str) {
+fn record_capture_diagnostics(
+    app: &tauri::AppHandle,
+    s: &Session,
+    snap: &CaptureState,
+    stage: &str,
+) {
     let data = serde_json::json!({
         "at_ms": now_ms(), "session_id": s.id, "capture_generation": s.capture.generation,
         "capture_pending": s.capture.pending, "capture_rebuilding": s.capture.rebuilding,
@@ -1678,7 +1906,10 @@ fn record_capture_diagnostics(app: &tauri::AppHandle, s: &Session, snap: &Captur
         "update_mode": snap.update_mode, "analysis_ms": s.analysis_ms,
     });
     if let Ok(dir) = app.path().app_data_dir() {
-        let _ = std::fs::write(dir.join("capture-diagnostics.json"), serde_json::to_vec_pretty(&data).unwrap());
+        let _ = std::fs::write(
+            dir.join("capture-diagnostics.json"),
+            serde_json::to_vec_pretty(&data).unwrap(),
+        );
     }
 }
 
@@ -1693,6 +1924,17 @@ struct Capturer {
     active: bool,
     preview: PreviewThrottle,
 }
+
+fn resume_observation_is_compatible(earlier: &ocr::Hud, current: &ocr::Hud) -> bool {
+    earlier.round.as_ref().is_some_and(|round| {
+        !round.is_empty() && current.round.as_ref() == Some(round)
+    }) && earlier.remaining.zip(current.remaining)
+        .is_some_and(|(before, now)| before >= now)
+        && earlier.counts.iter().zip(&current.counts).all(|(before, now)| {
+            before.zip(*now).is_some_and(|(before, now)| before >= now)
+        })
+}
+
 fn encode_preview(img: &RgbaImage) -> Result<String, NativeError> {
     let ratio = (960.0 / img.width() as f64).min(600.0 / img.height() as f64);
     let preview = image::imageops::resize(
@@ -1836,10 +2078,13 @@ impl GraphicsCaptureApiHandler for Capturer {
                 self.active = false;
                 return Ok(());
             }
-            let window_changed = observe_capture_window(&mut s, window_geometry(self.hwnd), observed_ms);
+            let window_changed =
+                observe_capture_window(&mut s, window_geometry(self.hwnd), observed_ms);
             let frame_changed = if capture_current(&s, self.id, self.generation, self.hwnd) {
                 observe_capture_frame(&mut s, width, height, observed_ms)
-            } else { false };
+            } else {
+                false
+            };
             if window_changed || frame_changed {
                 let snapshot = geometry_changed(&mut s);
                 record_capture_diagnostics(&self.app, &s, &snapshot, "geometry");
@@ -1890,11 +2135,15 @@ impl GraphicsCaptureApiHandler for Capturer {
         let content = locator.lock().unwrap().locate_content(&img);
         let (content, expected_revision, work_window) = {
             let mut s = state.session.lock().unwrap();
-            if !capture_current(&s, self.id, self.generation, self.hwnd) || s.revision != expected_revision || !frame_requested(&s) {
+            if !capture_current(&s, self.id, self.generation, self.hwnd)
+                || s.revision != expected_revision
+                || !frame_requested(&s)
+            {
                 return Ok(());
             }
             if !window_minimized(self.hwnd)
-                && observe_capture_window(&mut s, window_geometry(self.hwnd), now_ms()) {
+                && observe_capture_window(&mut s, window_geometry(self.hwnd), now_ms())
+            {
                 let snapshot = geometry_changed(&mut s);
                 drop(s);
                 let _ = self.app.emit_to("main", "capture-state", snapshot);
@@ -1916,12 +2165,20 @@ impl GraphicsCaptureApiHandler for Capturer {
                         "未定位到清晰的游戏内容区，请检查遮挡或窗口尺寸"
                     } else {
                         "未翻开样本不匹配，请检查画面或更新样本"
-                    }.into();
+                    }
+                    .into();
                     snap.refreshing = false;
                     s.refresh_deadline_ms = None;
                 }
                 drop(s);
-                return self.publish_snapshot(snap, &img, manual || resumed, observed_ms, work_started, "geometry");
+                return self.publish_snapshot(
+                    snap,
+                    &img,
+                    manual || resumed,
+                    observed_ms,
+                    work_started,
+                    "geometry",
+                );
             }
             // Use this frame's measured transform for every reader.
             (content.unwrap(), s.revision, s.geometry.window)
@@ -1930,13 +2187,43 @@ impl GraphicsCaptureApiHandler for Capturer {
         // after finishing an object. No old OCR count is paired with fresh art.
         self.hud = ocr::read_in_content(&img, content);
         self.last_ocr = Instant::now();
+        if let Some(error) = &self.hud.error {
+            let snapshot = {
+                let mut s = state.session.lock().unwrap();
+                if !capture_current(&s, self.id, self.generation, self.hwnd)
+                    || s.revision != expected_revision || !frame_requested(&s)
+                {
+                    return Ok(());
+                }
+                let mut snapshot = changed_snapshot(&mut s, "error", error);
+                snapshot.width = width;
+                snapshot.height = height;
+                snapshot.content_rect_px = Some(content);
+                snapshot.captured_at_ms = Some(observed_ms);
+                snapshot.confirmed = false;
+                for (index, item) in snapshot.items.iter_mut().enumerate() {
+                    item.remaining_count = self.hud.counts.get(index).copied().flatten()
+                        .and_then(|count| i32::try_from(count).ok()).unwrap_or(-1);
+                }
+                snapshot.remaining = self.hud.remaining;
+                snapshot.round = self.hud.round.clone();
+                s.latest = Some(snapshot.clone());
+                snapshot
+            };
+            return self.publish_snapshot(snapshot, &img, manual || resumed,
+                observed_ms, work_started, "ocr");
+        }
         let (recognizer, calibration, work_revision, work_epoch) = {
             let mut s = state.session.lock().unwrap();
-            if !capture_current(&s, self.id, self.generation, self.hwnd) || s.revision != expected_revision || !frame_requested(&s) {
+            if !capture_current(&s, self.id, self.generation, self.hwnd)
+                || s.revision != expected_revision
+                || !frame_requested(&s)
+            {
                 return Ok(());
             }
             if !window_minimized(self.hwnd)
-                && observe_capture_window(&mut s, window_geometry(self.hwnd), now_ms()) {
+                && observe_capture_window(&mut s, window_geometry(self.hwnd), now_ms())
+            {
                 let snapshot = geometry_changed(&mut s);
                 drop(s);
                 let _ = self.app.emit_to("main", "capture-state", snapshot);
@@ -1962,6 +2249,30 @@ impl GraphicsCaptureApiHandler for Capturer {
         };
         // Expensive image work never holds the UI/session lock. Edits, stop,
         // refresh timeouts and new sessions can invalidate the result meanwhile.
+        // Restore only explicitly supplied, earlier evidence from this same
+        // round. It must earn a complete recognition itself; the current frame
+        // then passes the normal tracking identity/geometry/conflict checks.
+        if self.hud.round.is_some() && self.hud.remaining.is_some()
+            && self.hud.counts.iter().all(Option::is_some)
+        {
+            let resume = state.resume_frame.lock().unwrap().take();
+            if let Some(path) = resume {
+                let earlier = image::open(&path)?.to_rgba8();
+                if let Some(earlier_content) = vision::locate_content(&earlier) {
+                    let earlier_hud = ocr::read_in_content(&earlier, earlier_content);
+                    if resume_observation_is_compatible(&earlier_hud, &self.hud) {
+                        let mut reader = recognizer.lock().unwrap();
+                        let observation = reader.analyze_completed_in_content(
+                            &earlier, earlier_content, None,
+                            earlier_hud.remaining, earlier_hud.counts,
+                        );
+                        let _ = reader.resolve_partial(
+                            &earlier, &observation, Some(earlier_content), earlier_hud.counts,
+                        );
+                    }
+                }
+            }
+        }
         let analysis = recognizer.lock().unwrap().analyze_completed_in_content(
             &img,
             content,
@@ -1969,6 +2280,48 @@ impl GraphicsCaptureApiHandler for Capturer {
             self.hud.remaining,
             self.hud.counts,
         );
+        let (partial_analysis, partial_counts) = {
+            let mut s = state.session.lock().unwrap();
+            if !capture_current(&s, self.id, self.generation, self.hwnd)
+                || s.revision != work_revision
+                || s.round_epoch != work_epoch
+                || !frame_requested(&s)
+            {
+                return Ok(());
+            }
+            update_card_items(&mut s, &analysis.shapes, self.hud.counts, analysis.finish);
+            let mut corrected = analysis.clone();
+            corrected.shapes = s.items.iter().map(|i| [i.width, i.height]).collect();
+            let counts = std::array::from_fn(|i| {
+                s.items
+                    .get(i)
+                    .and_then(|item| u32::try_from(item.remaining_count).ok())
+            });
+            (corrected, counts)
+        };
+        // Reuse the same content transform and current confirmed item corrections.
+        // The matcher never writes its footprints back into observed cell labels.
+        let partial = recognizer.lock().unwrap().resolve_partial(
+            &img,
+            &partial_analysis,
+            Some(content),
+            partial_counts,
+        );
+        let partial_placements: Vec<InferredPlacement> = if partial.complete {
+            partial
+                .placements
+                .iter()
+                .map(|p| InferredPlacement {
+                    item_index: p.item_index,
+                    x: p.x,
+                    y: p.y,
+                    width: p.width,
+                    height: p.height,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let snapshot = {
             let mut s = state.session.lock().unwrap();
             if !capture_current(&s, self.id, self.generation, self.hwnd)
@@ -2001,15 +2354,17 @@ impl GraphicsCaptureApiHandler for Capturer {
             if analysis.present && self.hud.remaining.is_some_and(|n| n < 45) {
                 s.seen_opened = true;
             }
-            update_card_items(&mut s, &analysis.shapes, self.hud.counts, analysis.finish);
+            let partial_resolved = partial.complete
+                && project_partial_board(&analysis.cells, &s.items, &partial_placements).is_some();
             let candidate = format!(
-                "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{width}x{height}",
+                "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{partial_resolved}|{width}x{height}",
                 analysis.cells,
                 s.items,
                 self.hud.remaining,
                 self.hud.round,
                 analysis.completed_objects,
-                analysis.candidate_constraints
+                analysis.candidate_constraints,
+                partial_placements
             );
             if resumed {
                 s.pending.clear();
@@ -2033,23 +2388,31 @@ impl GraphicsCaptureApiHandler for Capturer {
             let (mut status, mut message) = if !analysis.present {
                 ("uncertain", analysis.message.clone())
             } else if !s.confirmed {
-                ("uncertain", item_reading_error(&s.items))
+                ("uncertain", item_reading_error(&s.items, Some(&self.hud.count_errors)))
             } else if s.pending_round.is_some() {
                 ("uncertain", "正在确认轮次，暂停推荐".into())
             } else if self.hud.remaining.is_none() {
                 ("uncertain", "未读到剩余格数，等待清晰画面".into())
-            } else if awaiting_item_completion(&analysis.cells, self.hud.remaining) {
-                ("waiting_item", if manual {
-                    "已翻区域尚未确认完整，暂停概率；翻完物品后点击刷新".into()
-                } else {
-                    "已翻区域尚未确认完整，暂停概率；翻完物品后自动恢复".into()
-                })
-            } else if analysis.cells.iter().any(|c| c == "uncertain") {
-                ("uncertain", if analysis.manual_cover_mismatch {
-                    "未翻开样本不匹配，请检查画面或更新样本".into()
-                } else {
-                    "有格子待确认，请在预览中校正".into()
-                })
+            } else if !partial_resolved
+                && awaiting_item_completion(&analysis.cells, self.hud.remaining)
+            {
+                (
+                    "waiting_item",
+                    if manual {
+                        "局部物品位置尚未确认，暂停概率；继续翻格后点击刷新".into()
+                    } else {
+                        "局部物品位置尚未确认，暂停概率；继续翻格后自动重试".into()
+                    },
+                )
+            } else if !partial_resolved && analysis.cells.iter().any(|c| c == "uncertain") {
+                (
+                    "uncertain",
+                    if analysis.manual_cover_mismatch {
+                        "未翻开样本不匹配，请检查画面或更新样本".into()
+                    } else {
+                        "有格子待确认，请在预览中校正".into()
+                    },
+                )
             } else if opened != 45 - self.hud.remaining.unwrap() {
                 ("uncertain", "翻格数量与画面尚未一致".into())
             } else if s.remaining.is_some_and(|n| self.hud.remaining.unwrap() > n) {
@@ -2064,7 +2427,9 @@ impl GraphicsCaptureApiHandler for Capturer {
                     s.refresh_deadline_ms = None;
                     status = "error";
                     message = "画面未能稳定，请等动画结束后重新刷新".into();
-                } else if s.pending_frames >= 2 {
+                } else if s.items.iter().any(|item| item.remaining_count < 0)
+                    || s.pending_frames >= 2
+                {
                     s.refresh_deadline_ms = None;
                     if status == "ready" {
                         message = "手动快照已更新；翻格后请再次刷新".into();
@@ -2077,7 +2442,7 @@ impl GraphicsCaptureApiHandler for Capturer {
                     s.seen_opened = true;
                 }
             }
-            let signature = format!("{status}|{candidate}");
+            let signature = format!("{status}|{candidate}|{message}");
             if s.published != signature {
                 s.published = signature;
                 s.revision += 1;
@@ -2089,7 +2454,10 @@ impl GraphicsCaptureApiHandler for Capturer {
                 revision: s.revision,
                 status: status.into(),
                 message,
-                frame_url: s.latest.as_ref().map_or_else(String::new, |c| c.frame_url.clone()),
+                frame_url: s
+                    .latest
+                    .as_ref()
+                    .map_or_else(String::new, |c| c.frame_url.clone()),
                 width,
                 height,
                 content_rect_px: Some(content),
@@ -2104,6 +2472,7 @@ impl GraphicsCaptureApiHandler for Capturer {
                 captured_at_ms: Some(observed_ms),
                 completed_objects: analysis.completed_objects,
                 candidate_constraints: analysis.candidate_constraints,
+                partial_placements,
                 reference_ready: analysis.reference_ready,
                 card_fingerprints: analysis.card_fingerprints,
                 finish: analysis.finish,
@@ -2113,12 +2482,23 @@ impl GraphicsCaptureApiHandler for Capturer {
                 .iter()
                 .zip(snap.finish)
                 .all(|(r, f)| *r || f);
-            let stage = if !analysis.present { "vision" }
-                else if self.hud.remaining.is_none() || !s.confirmed { "ocr_or_cards" }
-                else { "observation" };
+            let stage = if !analysis.present {
+                "vision"
+            } else if self.hud.remaining.is_none() || !s.confirmed {
+                "ocr_or_cards"
+            } else {
+                "observation"
+            };
             (snap, stage)
         };
-        self.publish_snapshot(snapshot.0, &img, manual || resumed, observed_ms, work_started, snapshot.1)
+        self.publish_snapshot(
+            snapshot.0,
+            &img,
+            manual || resumed,
+            observed_ms,
+            work_started,
+            snapshot.1,
+        )
     }
     fn on_closed(&mut self) -> Result<(), Self::Error> {
         let state = self.app.state::<AppState>();
@@ -2151,6 +2531,31 @@ impl GraphicsCaptureApiHandler for Capturer {
 #[cfg(test)]
 mod session_tests {
     use super::*;
+
+    #[test]
+    fn resume_frame_requires_read_same_round_and_forward_inventory() {
+        let earlier = ocr::Hud {
+            round: Some("6".into()), remaining: Some(31),
+            counts: [Some(1), Some(4), Some(3)],
+            ..ocr::Hud::default()
+        };
+        let mut current = earlier.clone();
+        current.remaining = Some(30);
+        assert!(resume_observation_is_compatible(&earlier, &current));
+        current.counts[1] = Some(3);
+        assert!(resume_observation_is_compatible(&earlier, &current));
+        for invalid in [
+            ocr::Hud { round: Some("7".into()), ..current.clone() },
+            ocr::Hud { round: None, ..current.clone() },
+            ocr::Hud { remaining: None, ..current.clone() },
+            ocr::Hud { remaining: Some(32), ..current.clone() },
+            ocr::Hud { counts: [Some(1), None, Some(3)], ..current.clone() },
+            ocr::Hud { counts: [Some(1), Some(5), Some(3)], ..current.clone() },
+        ] {
+            assert!(!resume_observation_is_compatible(&earlier, &invalid));
+        }
+        assert!(!resume_observation_is_compatible(&ocr::Hud::default(), &current));
+    }
 
     #[test]
     fn no_frame_timeout_publishes_once_until_native_frames_resume() {
@@ -2192,26 +2597,41 @@ mod session_tests {
     #[test]
     #[ignore]
     fn preview_workload_benchmark() {
-        let path = std::env::var_os("BA_PERF_IMAGE").map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/vision-ocr-fullscreen-3840.png"));
+        let path = std::env::var_os("BA_PERF_IMAGE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures/vision-ocr-fullscreen-3840.png")
+            });
         let img = image::open(&path).unwrap().to_rgba8();
         let legacy_encode = |img: &RgbaImage| {
             let preview = image::DynamicImage::ImageRgba8(img.clone())
-                .resize(960, 600, image::imageops::FilterType::Triangle).to_rgb8();
+                .resize(960, 600, image::imageops::FilterType::Triangle)
+                .to_rgb8();
             let mut jpg = vec![];
-            JpegEncoder::new_with_quality(&mut jpg, 72).encode_image(&preview).unwrap();
-            format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpg))
+            JpegEncoder::new_with_quality(&mut jpg, 72)
+                .encode_image(&preview)
+                .unwrap();
+            format!(
+                "data:image/jpeg;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(jpg)
+            )
         };
         // Warm up both paths and verify that the direct-source resize preserves output.
         assert_eq!(legacy_encode(&img), encode_preview(&img).unwrap());
         let frames = 50_u64;
         let before = Instant::now();
-        for _ in 0..frames { std::hint::black_box(legacy_encode(&img)); }
+        for _ in 0..frames {
+            std::hint::black_box(legacy_encode(&img));
+        }
         let before_ms = before.elapsed().as_secs_f64() * 1000.0;
         let key = PreviewKey {
-            revision: 1, dimensions: img.dimensions(), content: None, board: None,
-            status: "ready".into(), message: "ready".into(),
+            revision: 1,
+            dimensions: img.dimensions(),
+            content: None,
+            board: None,
+            status: "ready".into(),
+            message: "ready".into(),
         };
         let after = Instant::now();
         let mut throttle = PreviewThrottle::default();
@@ -2226,24 +2646,39 @@ mod session_tests {
         }
         let after_ms = after.elapsed().as_secs_f64() * 1000.0;
         assert_eq!(encoded, 10);
-        println!("{}", serde_json::json!({
-            "scope":"preview encoding only; same static 10-second 5-Hz workload",
-            "image":path,"frame_size":img.dimensions(),"frames":frames,
-            "before_encodes":frames,"after_encodes":encoded,
-            "before_ms":before_ms,"after_ms":after_ms,
-        }));
+        println!(
+            "{}",
+            serde_json::json!({
+                "scope":"preview encoding only; same static 10-second 5-Hz workload",
+                "image":path,"frame_size":img.dimensions(),"frames":frames,
+                "before_encodes":frames,"after_encodes":encoded,
+                "before_ms":before_ms,"after_ms":after_ms,
+            })
+        );
     }
 
     fn connected_capture() -> (Session, CaptureTicket) {
-        let window = WindowGeometry { width: 1960, height: 1162, dpi: 144 };
+        let window = WindowGeometry {
+            width: 1960,
+            height: 1162,
+            dpi: 144,
+        };
         let mut s = Session {
-            id: 41, hwnd: 123, round_epoch: 7, round: Some("7".into()),
+            id: 41,
+            hwnd: 123,
+            round_epoch: 7,
+            round: Some("7".into()),
             capture: CaptureLifecycle::new(window, 0),
             ..Session::default()
         };
         assert!(s.capture.installed(1));
         s.geometry.observe_window(window);
-        let ticket = CaptureTicket { session_id: s.id, generation: 1, hwnd: s.hwnd, window };
+        let ticket = CaptureTicket {
+            session_id: s.id,
+            generation: 1,
+            hwnd: s.hwnd,
+            window,
+        };
         (s, ticket)
     }
 
@@ -2252,15 +2687,27 @@ mod session_tests {
         let (mut s, old) = connected_capture();
         begin_manual_refresh(&mut s, 1000).unwrap();
         s.paused = true;
-        s.profile.board = Some(Rect { x: 0.4, y: 0.2, width: 0.5, height: 0.5 });
+        s.profile.board = Some(Rect {
+            x: 0.4,
+            y: 0.2,
+            width: 0.5,
+            height: 0.5,
+        });
         let refs = Arc::clone(&s.recognizer);
         let deadline = s.refresh_deadline_ms;
         let revision = s.revision;
-        let next_window = WindowGeometry { width: 3840, height: 2094, ..old.window };
+        let next_window = WindowGeometry {
+            width: 3840,
+            height: 2094,
+            ..old.window
+        };
         assert!(observe_capture_window(&mut s, next_window, 1100));
         let snapshot = geometry_changed(&mut s);
         assert!(!old.current(&s));
-        assert_eq!((s.id, s.round_epoch, s.round.as_deref()), (41, 7, Some("7")));
+        assert_eq!(
+            (s.id, s.round_epoch, s.round.as_deref()),
+            (41, 7, Some("7"))
+        );
         assert!(Arc::ptr_eq(&refs, &s.recognizer));
         assert_eq!(s.refresh_deadline_ms, deadline);
         assert!(s.paused && snapshot.refreshing && s.revision > revision);
@@ -2413,15 +2860,30 @@ mod session_tests {
 
     #[test]
     fn dimensions_follow_rotatable_board_geometry() {
-        let mut items = vec![ItemSpec { width: 1, height: 1, remaining_count: 0 }; 3];
+        let mut items = vec![
+            ItemSpec {
+                width: 1,
+                height: 1,
+                remaining_count: 0
+            };
+            3
+        ];
         for (width, height) in [(5, 1), (1, 5), (9, 1), (1, 9), (5, 5), (9, 5), (5, 9)] {
-            items[0] = ItemSpec { width, height, remaining_count: 1 };
+            items[0] = ItemSpec {
+                width,
+                height,
+                remaining_count: 1,
+            };
             assert!(valid_items(&items), "{width}x{height}");
         }
         for (width, height) in [(6, 6), (10, 1), (1, 10), (u32::MAX, 1)] {
-            items[0] = ItemSpec { width, height, remaining_count: 1 };
+            items[0] = ItemSpec {
+                width,
+                height,
+                remaining_count: 1,
+            };
             assert!(!valid_items(&items), "{width}x{height}");
-            assert!(item_reading_error(&items).contains("无法放入 9×5 棋盘"));
+            assert!(item_reading_error(&items, None).contains("无法放入 9×5 棋盘"));
         }
     }
 
@@ -2438,11 +2900,17 @@ mod session_tests {
         items[1].remaining_count = -1;
         items[2].remaining_count = -1;
         assert_eq!(
-            item_reading_error(&items),
+            item_reading_error(&items, None),
             "未读到物品 2、3 的剩余件数，请刷新或校正"
         );
         items[1].width = 0;
-        assert!(item_reading_error(&items).contains("未读到物品 2 的尺寸"));
+        assert!(item_reading_error(&items, None).contains("未读到物品 2 的尺寸"));
+        let reasons = [None, Some("识别结果不是有效数字".into()), None];
+        assert!(item_reading_error(&items, Some(&reasons))
+            .contains("物品 2 的数量识别失败：识别结果不是有效数字"));
+        items[1].remaining_count = 1;
+        assert!(!item_reading_error(&items, Some(&reasons)).contains("数量识别失败"),
+            "a corrected or Finish count must not retain a rejected raw OCR reason");
     }
 
     #[test]
@@ -2458,6 +2926,88 @@ mod session_tests {
             cells[8] = observation.into();
             assert!(!awaiting_item_completion(&cells, Some(44)));
         }
+    }
+
+    #[test]
+    fn partial_projection_retires_each_physical_item_once_without_changing_observations() {
+        let mut cells = vec!["unknown".to_owned(); 45];
+        cells[0] = "uncertain".into();
+        cells[1] = "item0".into();
+        cells[9] = "uncertain".into();
+        let items = vec![
+            ItemSpec {
+                width: 2,
+                height: 1,
+                remaining_count: 2
+            };
+            3
+        ];
+        let first = InferredPlacement {
+            item_index: 0,
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+        };
+        let second = InferredPlacement {
+            y: 1,
+            ..first.clone()
+        };
+        let (projected, inventory) =
+            project_partial_board(&cells, &items, &[first.clone(), first, second]).unwrap();
+        assert_eq!(inventory[0].remaining_count, 0);
+        assert_eq!(inventory[1].remaining_count, 2);
+        for index in [0, 1, 9, 10] {
+            assert_eq!(projected[index], "completed");
+        }
+        assert_eq!(cells[0], "uncertain");
+        assert_eq!(cells[10], "unknown");
+        assert_eq!(items[0].remaining_count, 2);
+        // The subsequent Finish frame has already updated the HUD and raw cells.
+        let (finished, inventory) = project_partial_board(&projected, &inventory, &[]).unwrap();
+        assert_eq!(finished, projected);
+        assert_eq!(inventory[0].remaining_count, 0);
+    }
+
+    #[test]
+    fn partial_projection_rejects_conflicts_missing_evidence_and_exhausted_counts() {
+        let mut cells = vec!["unknown".to_owned(); 45];
+        let mut items = vec![
+            ItemSpec {
+                width: 2,
+                height: 1,
+                remaining_count: 1
+            };
+            3
+        ];
+        let p = InferredPlacement {
+            item_index: 0,
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+        };
+        assert!(project_partial_board(&cells, &items, &[p.clone()]).is_none());
+        cells[0] = "uncertain".into();
+        assert!(project_partial_board(&cells, &items, &[]).is_none());
+        for invalid in ["empty", "completed", "item1"] {
+            cells[1] = invalid.into();
+            assert!(project_partial_board(&cells, &items, &[p.clone()]).is_none());
+        }
+        cells[1] = "unknown".into();
+        assert!(project_partial_board(&cells, &items, &[p.clone()]).is_some());
+        let overlap = InferredPlacement {
+            item_index: 1,
+            ..p.clone()
+        };
+        assert!(project_partial_board(&cells, &items, &[p.clone(), overlap]).is_none());
+        let outside = InferredPlacement {
+            x: usize::MAX,
+            ..p.clone()
+        };
+        assert!(project_partial_board(&cells, &items, &[outside]).is_none());
+        items[0].remaining_count = 0;
+        assert!(project_partial_board(&cells, &items, &[p]).is_none());
     }
 
     #[test]
@@ -2487,6 +3037,7 @@ mod session_tests {
             captured_at_ms: Some(1000),
             completed_objects: vec![],
             candidate_constraints: vec![],
+            partial_placements: vec![],
             reference_ready: [false; 3],
             card_fingerprints: [None, None, None],
             finish: [false; 3],
@@ -2627,6 +3178,16 @@ mod session_tests {
         assert_eq!(pending.revision, session.revision);
         expire_manual_refresh(&mut session, 16000).unwrap();
         assert!(refresh_control_state(&session).enabled);
+        let request = begin_manual_refresh(&mut session, 17000).unwrap();
+        let failed = changed_snapshot(&mut session, "error", "识别超时，请重试或校正");
+        assert!(!failed.refreshing && !frame_requested(&session));
+        assert!(refresh_control_state(&session).enabled);
+        assert!(require_version(&session, request.session_id, request.round_epoch, request.revision).is_err(),
+            "an expired OCR request cannot publish over the failure or next refresh");
+        let retry = begin_manual_refresh(&mut session, 17010).unwrap();
+        assert!(retry.refreshing && retry.revision > failed.revision);
+        changed_snapshot(&mut session, "uncertain", "未读到物品 3 的剩余件数，请刷新或校正");
+        assert!(refresh_control_state(&session).enabled);
         session.profile.update_mode = UpdateMode::Auto;
         assert!(!refresh_control_state(&session).enabled);
         session.profile.update_mode = UpdateMode::Manual;
@@ -2753,23 +3314,39 @@ mod session_tests {
         s.id = 7;
         s.hwnd = 42;
         s.profile.update_mode = UpdateMode::Auto;
-        let samples: Vec<_> = (0..45).map(|i| CoverSample { rgb: vec![[i, 10, 20]; SAMPLE_SIZE * SAMPLE_SIZE] }).collect();
+        let samples: Vec<_> = (0..45)
+            .map(|i| CoverSample {
+                rgb: vec![[i, 10, 20]; SAMPLE_SIZE * SAMPLE_SIZE],
+            })
+            .collect();
         s.cover_candidates = Some(CoverCandidates {
-            token: 17, session_id: s.id, generation: s.capture.generation,
-            round_epoch: s.round_epoch, samples: samples.clone(), images: vec!["preview".into(); 45],
+            token: 17,
+            session_id: s.id,
+            generation: s.capture.generation,
+            round_epoch: s.round_epoch,
+            samples: samples.clone(),
+            images: vec!["preview".into(); 45],
         });
         assert!(frame_requested(&s));
         let selection = freeze_cover_selection(&mut s).unwrap();
         assert!(!frame_requested(&s));
         assert_eq!(selection.images.len(), 45);
-        s.cover_candidates.as_mut().unwrap().samples[3].rgb.fill([255, 0, 0]);
-        assert_eq!(selected_cover_samples(&s, selection.token, &[3, 3, 8]).unwrap(), vec![samples[3].clone(), samples[8].clone()]);
+        s.cover_candidates.as_mut().unwrap().samples[3]
+            .rgb
+            .fill([255, 0, 0]);
+        assert_eq!(
+            selected_cover_samples(&s, selection.token, &[3, 3, 8]).unwrap(),
+            vec![samples[3].clone(), samples[8].clone()]
+        );
         assert!(selected_cover_samples(&s, selection.token, &[]).is_err());
         assert!(selected_cover_samples(&s, selection.token, &[45]).is_err());
         assert!(selected_cover_samples(&s, selection.token + 1, &[3]).is_err());
         s.capture.generation += 1;
         geometry_changed(&mut s);
-        assert_eq!(selected_cover_samples(&s, selection.token, &[3]).unwrap(), vec![samples[3].clone()]);
+        assert_eq!(
+            selected_cover_samples(&s, selection.token, &[3]).unwrap(),
+            vec![samples[3].clone()]
+        );
         s.round_epoch += 1;
         assert!(selected_cover_samples(&s, selection.token, &[3]).is_err());
         s.round_epoch -= 1;
@@ -2862,7 +3439,9 @@ fn main() {
         };
         let img = image::open(&args[2]).expect("image").to_rgba8();
         let content = vision::locate_content(&img);
-        let hud = content.map(|r| ocr::read_in_content(&img, r)).unwrap_or_default();
+        let hud = content
+            .map(|r| ocr::read_in_content(&img, r))
+            .unwrap_or_default();
         let timer = Instant::now();
         let mut recognizer = vision::Recognizer::new();
         let a = if let Some(r) = content {
@@ -2870,14 +3449,41 @@ fn main() {
         } else {
             recognizer.analyze_completed_snapshot(&img, None, hud.remaining, hud.counts)
         };
+        let mut inspection = Session::default();
+        update_card_items(&mut inspection, &a.shapes, hud.counts, a.finish);
+        let partial_counts = std::array::from_fn(|i| {
+            inspection
+                .items
+                .get(i)
+                .and_then(|item| u32::try_from(item.remaining_count).ok())
+        });
+        let partial = recognizer.resolve_partial(&img, &a, content, partial_counts);
+        let placements: Vec<InferredPlacement> = partial
+            .placements
+            .iter()
+            .map(|p| InferredPlacement {
+                item_index: p.item_index,
+                x: p.x,
+                y: p.y,
+                width: p.width,
+                height: p.height,
+            })
+            .collect();
+        let projection = partial
+            .complete
+            .then(|| project_partial_board(&a.cells, &inspection.items, &placements))
+            .flatten();
         println!(
             "{}",
-            serde_json::json!({"frame_size":img.dimensions(),"content_rect_px":content,"remaining":hud.remaining,"round":hud.round,"counts":hud.counts,"board":a.board,"cells":a.cells,"shapes":a.shapes,"present":a.present,"message":a.message,"completed_objects":a.completed_objects,"candidate_constraints":a.candidate_constraints,"reference_ready":a.reference_ready,"card_fingerprints":a.card_fingerprints,"finish":a.finish,"analysis_ms":timer.elapsed().as_millis()})
+            serde_json::json!({"frame_size":img.dimensions(),"content_rect_px":content,"remaining":hud.remaining,"round":hud.round,"counts":hud.counts,"count_errors":hud.count_errors,"ocr_error":hud.error,"board":a.board,"cells":a.cells,"shapes":a.shapes,"present":a.present,"message":a.message,"completed_objects":a.completed_objects,"candidate_constraints":a.candidate_constraints,"reference_ready":a.reference_ready,"card_fingerprints":a.card_fingerprints,"finish":a.finish,"analysis_ms":timer.elapsed().as_millis(),"partial_placements":placements,"partial_complete":partial.complete,"partial_message":partial.message,"solver_projection":projection.map(|(cells,items)|serde_json::json!({"cells":cells,"items":items,"candidate_constraints":[]}))})
         );
         return;
     }
+    let state = AppState::default();
+    *state.resume_frame.lock().unwrap() = args.iter().position(|arg| arg == "--resume-frame")
+        .and_then(|index| args.get(index + 1)).map(std::path::PathBuf::from);
     tauri::Builder::default()
-        .manage(AppState::default())
+        .manage(state)
         .invoke_handler(tauri::generate_handler![
             list_windows,
             start_capture,
@@ -2933,7 +3539,8 @@ fn main() {
                     } else if s.capture.failed {
                         None
                     } else if !window_minimized(hwnd)
-                        && observe_capture_window(&mut s, window_geometry(hwnd), now_ms()) {
+                        && observe_capture_window(&mut s, window_geometry(hwnd), now_ms())
+                    {
                         // Pixel work may be blocked in OCR. Window metadata is
                         // enough to retire its version and hide the old overlay.
                         Some(geometry_changed(&mut s))
@@ -2966,7 +3573,12 @@ fn main() {
                     }
                 };
                 if let Some(c) = update {
-                    record_capture_diagnostics(&handle, &state.session.lock().unwrap(), &c, "window");
+                    record_capture_diagnostics(
+                        &handle,
+                        &state.session.lock().unwrap(),
+                        &c,
+                        "window",
+                    );
                     let _ = handle.emit_to("main", "capture-state", c);
                 }
                 schedule_capture_rebuild(&handle);

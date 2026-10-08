@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "parameter_policy": "Offline tuning/regression. Preserve extraction, original RGB search gates and recorded scores, coarse offset rescue, border loss cap, search grid, and final threshold 38. Use existing border confidence for template-core RGB in the foreground refinement/final objective, retaining original edge/reverse penalties and actual observed-foreground error. The ring and its complete sequence remain tuning/regression. Freeze before original validation; independent real partial holdout remains unavailable. Exact sprite-angle truth is unavailable.",
+  "matching": {
+    "coarse_angle_step": 10,
+    "fills": [
+      0.84,
+      0.92,
+      0.99
+    ],
+    "aspect_log_tolerance": 0.4,
+    "max_color_error": 38.0,
+    "min_anchor_pixels": 45,
+    "edge_weight": 0.12,
+    "reverse_weight": 10.0,
+    "foreground_chroma": 30,
+    "foreground_dark": 190,
+    "reliable_border": 3,
+    "min_texture_std": 6.0,
+    "refine": [
+      {
+        "angles": [
+          -6,
+          -4,
+          -2,
+          0,
+          2,
+          4,
+          6
+        ],
+        "fills": [
+          -0.04,
+          -0.02,
+          0,
+          0.02,
+          0.04
+        ],
+        "offsets": [
+          -1.5,
+          0,
+          1.5
+        ]
+      },
+      {
+        "angles": [
+          -1,
+          0,
+          1
+        ],
+        "fills": [
+          -0.01,
+          0,
+          0.01
+        ],
+        "offsets": [
+          -0.75,
+          0,
+          0.75
+        ]
+      }
+    ],
+    "max_evaluations": 0,
+    "tile_cache_bytes": 67108864,
+    "low_confidence_weight": 0.1,
+    "mismatch_error": 35.0,
+    "extraction": {
+      "enabled": true,
+      "color_error_max": 12.0,
+      "vertical_bands": 3,
+      "min_rows_per_band": 3
+    },
+    "coarse_offset_rescue": true,
+    "low_confidence_error_cap": 35.0,
+    "foreground_refinement": true,
+    "confidence_weighted_scoring": true
+  },
+  "constraints": {
+    "max_search_nodes": 500000,
+    "max_solver_calls": 10000,
+    "max_elapsed_ms": 120000
+  },
+  "direction_tolerance_degrees": 6.0,
+  "scoring": {
+    "retention_max_error": 38.0,
+    "threshold_controls": [
+      21.0,
+      20.0
+    ],
+    "visible_foreground_max_error": 38.0,
+    "geometry_competition": {
+      "error_tolerance": 5.0
+    }
+  }
+}

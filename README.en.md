@@ -9,9 +9,15 @@ It calculates the hit probability for each tile based on the current board and r
 ## Features
 
 - **Probability display**: See the hit probability for each tile on the game board.
+- **Item footprint marking**: Identify an item's full footprint from revealed fragments, mark it with a gold outline, and exclude it from the remaining probability calculation.
+- **Confirmed item tracking**: Update observations of confirmed items as more tiles within their footprints are opened during the same round.
 - **Manual and automatic refresh**: Refresh after opening a tile, or enable automatic updates as the board changes.
 - **Highest-probability highlight**: Turn on “Highlight highest” to emphasize the tile with the highest hit probability.
 - **Manual correction**: Correct a tile's recognized state, item dimensions, and remaining quantity.
+
+## Download
+
+Download the Windows 64-bit ZIP from [GitHub Releases](https://github.com/RenaKana/ba-treasure-overlay/releases/latest), extract it, and run `ba-treasure-overlay.exe`. Close the previous assistant before updating.
 
 ## How to use
 
@@ -28,7 +34,7 @@ Saved samples stay on this PC across rounds and restarts. After an event change 
 
 Use the control at the top of the assistant window to change the interface language and zoom level. The zoom setting is saved and affects only the assistant window; it does not change the overlay coordinates on the game board.
 
-Probabilities are for reference and do not guarantee a hit every time. If the image cannot be recognized, or an item has not been fully revealed, the assistant pauses its recommendations. If the recognized board differs from the actual game, correct it manually and refresh again. Image recognition and probability calculations run locally, and the assistant does not open tiles automatically.
+Probabilities are for reference and do not guarantee a hit every time. Once a partially revealed item's full footprint is identified, the assistant marks it and excludes it from the remaining probability calculation. Unrecognized images or ambiguous footprints pause recommendations. If the recognized board differs from the actual game, correct it manually and refresh again. Image recognition and probability calculations run locally, and the assistant does not open tiles automatically.
 
 ## Client compatibility
 

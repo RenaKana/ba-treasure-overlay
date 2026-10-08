@@ -124,13 +124,26 @@ impl SnapshotResult {
 
 /// Native counterpart of `solve_snapshot` for deterministic validation fixtures.
 pub fn solve_snapshot_native(input: SnapshotInput) -> SnapshotResult {
-    match solve_inner(input) {
+    match solve_inner(input, SAMPLE_LIMIT, true) {
         Ok(result) => result,
         Err(error) => SnapshotResult::failure(error.to_string()),
     }
 }
 
-fn solve_inner(mut input: SnapshotInput) -> Result<SnapshotResult> {
+/// Check the same complete layout constraints with one witness and no probabilities.
+/// The checked DP count is still exhaustive; overflow and input errors remain errors.
+pub fn check_snapshot_feasibility_native(input: SnapshotInput) -> SnapshotResult {
+    match solve_inner(input, 1, false) {
+        Ok(result) => result,
+        Err(error) => SnapshotResult::failure(error.to_string()),
+    }
+}
+
+fn solve_inner(
+    mut input: SnapshotInput,
+    sample_limit: u64,
+    include_probabilities: bool,
+) -> Result<SnapshotResult> {
     ensure!(
         input.items.len() == 3,
         "input_error: exactly 3 item groups required"
@@ -238,7 +251,7 @@ fn solve_inner(mut input: SnapshotInput) -> Result<SnapshotResult> {
         &state,
         Some(&hits),
         constraints,
-        SAMPLE_LIMIT,
+        sample_limit,
         &mut rng,
     )?;
     ensure!(
@@ -246,19 +259,23 @@ fn solve_inner(mut input: SnapshotInput) -> Result<SnapshotResult> {
         "no_valid_configuration: observations, remaining counts, and candidates are inconsistent"
     );
 
-    let probs = (0..8)
-        .map(|flag| {
-            counter::calc_probabilities(
-                &state,
-                flag,
-                sampled.sampled_count,
-                &sampled.sampled_item_counts,
-            )
-            .iter()
-            .copied()
+    let probs = if include_probabilities {
+        (0..8)
+            .map(|flag| {
+                counter::calc_probabilities(
+                    &state,
+                    flag,
+                    sampled.sampled_count,
+                    &sampled.sampled_item_counts,
+                )
+                .iter()
+                .copied()
+                .collect()
+            })
             .collect()
-        })
-        .collect();
+    } else {
+        vec![]
+    };
     let mut inferred_placements: Vec<_> = input
         .candidate_constraints
         .iter()
@@ -279,7 +296,7 @@ fn solve_inner(mut input: SnapshotInput) -> Result<SnapshotResult> {
     Ok(SnapshotResult {
         probs,
         error: String::new(),
-        precision: Some(if sampled.all_count <= SAMPLE_LIMIT {
+        precision: Some(if sampled.all_count <= sample_limit {
             "exact"
         } else {
             "sampled"

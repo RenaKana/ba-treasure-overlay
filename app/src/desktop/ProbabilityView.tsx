@@ -5,17 +5,17 @@ import { translateDesktopMessage, useDesktopI18n } from './desktopI18n.ts';
 export function InferenceLayer({ placements }: { placements: InferredPlacement[] }) {
   const { t } = useDesktopI18n();
   if (placements.length === 0) return null;
-  return <div className="ba-inference-layer" aria-label={t('可靠物品位置推断')}>
+  return <div className="ba-inference-layer" aria-label={t('已定位物品占格')}>
     {placements.map((placement) => <div
       className="ba-inferred-placement"
       key={`${placement.item_index}:${placement.x}:${placement.y}:${placement.width}:${placement.height}`}
       data-inferred-item={placement.item_index}
-      title={t('物品 {{item}} 的可靠位置推断', { item: placement.item_index + 1 })}
+      title={t('物品 {{item}} 的已定位占格', { item: placement.item_index + 1 })}
       style={{
         gridColumn: `${placement.x + 1} / span ${placement.width}`,
         gridRow: `${placement.y + 1} / span ${placement.height}`,
       }}
-    ><span>{t('推断')}</span></div>)}
+    ><span>{t('物品 {{item}}', { item: placement.item_index + 1 })}</span></div>)}
   </div>;
 }
 

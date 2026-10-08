@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>局部备品识别 · 离线报告</title>
+  <style>
+    :root{color-scheme:light;--ink:#182936;--muted:#667581;--line:#dce4e9;--paper:#fff;--ground:#f3f6f8;--accent:#176e91;--blue:#448bd4;--red:#d94448;--amber:#bc7621;--green:#26775e;font-family:"Segoe UI","Microsoft YaHei",sans-serif;font-size:14px}
+    *{box-sizing:border-box}body{margin:0;background:var(--ground);color:var(--ink)}a{color:var(--accent);text-underline-offset:3px}button,select,input{font:inherit}button,select{min-height:32px;border:1px solid var(--line);border-radius:5px;background:#fff;color:var(--ink)}button{padding:4px 10px;cursor:pointer}button:hover{border-color:var(--accent)}button:disabled,select:disabled{opacity:.5;cursor:default}button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}select{padding:4px 24px 4px 8px;max-width:100%}input[type=checkbox]{accent-color:var(--accent)}input[type=range]{accent-color:var(--accent);width:110px;vertical-align:middle}
+    header{background:var(--paper);border-bottom:1px solid var(--line);padding:20px 26px 16px}.heading{display:flex;align-items:center;justify-content:space-between;gap:16px}h1{font-size:21px;line-height:1.35;margin:0;font-weight:650;letter-spacing:.01em}.subtitle{margin:5px 0 0;color:var(--muted);font-size:12px}.scope{margin:12px 0 0;color:var(--muted);font-size:12px;line-height:1.6}.download{white-space:nowrap;font-size:12px}.container{max-width:1560px;margin:0 auto;padding:18px 26px 30px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:8px;min-width:0}.panel-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line)}h2{font-size:14px;font-weight:650;margin:0}h3{font-size:12px;font-weight:600;margin:0 0 8px}.panel-body{padding:14px 15px}.toolbar{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px 14px;padding:13px 15px}.field{display:flex;flex-direction:column;gap:5px;min-width:100px}.field label,.label{font-size:11px;color:var(--muted)}.frame-field{flex:1;min-width:250px}.frame-field select{width:100%}.navigation{display:flex;gap:5px}.toolbar-secondary{border-top:1px solid var(--line)}.stage-field{flex:1;min-width:180px}.observation-field{flex:1;min-width:180px}.candidate-field{flex:2;min-width:260px}.provenance{display:flex;gap:6px;flex-wrap:wrap;padding:0 15px 13px;align-items:center}.chip{display:inline-block;font-size:11px;line-height:1.45;border:1px solid var(--line);background:#f7f9fa;border-radius:4px;padding:3px 6px}.chip.good{color:var(--green);background:#edf7f2;border-color:#cce8d8}.chip.warn{color:#92601e;background:#fff6e9;border-color:#f0d9b3}.chip.blue{color:#276ca9;background:#eef5fc;border-color:#cfe2f5}.chip.bad{color:#b23237;background:#fff0f0;border-color:#f1ced0}.source{font-size:11px;color:var(--muted);overflow-wrap:anywhere}.spaced{margin-top:15px}.workbench{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:15px}.board-pair{display:grid;grid-template-columns:1fr 1fr;gap:13px}.board-box{min-width:0}.board-surface{display:block;width:100%;height:auto;aspect-ratio:9/5;object-fit:contain;background:#edf1f3;border:1px solid var(--line);border-radius:4px;image-rendering:auto}.board-caption{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;font-size:11px;color:var(--muted)}.overlay-controls{display:flex;align-items:center;flex-wrap:wrap;gap:9px 14px;margin:13px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:12px}.overlay-controls label{display:flex;align-items:center;gap:5px}.opacity-label{white-space:nowrap}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--muted);margin-top:10px}.legend span{display:flex;align-items:center;gap:5px}.swatch{width:10px;height:10px;border-radius:2px;display:inline-block}.swatch.unknown{background:#bdd9f4}.swatch.mismatch{background:var(--red)}.swatch.footprint{background:transparent;border:1.5px dashed var(--amber)}.status-line{font-size:11px;color:var(--muted);line-height:1.65;margin-top:9px;min-height:18px}.error{color:#b23237;background:#fff2f2;border:1px solid #efd1d1;border-radius:5px;padding:9px 12px;margin-top:10px;font-size:12px;overflow-wrap:anywhere}.asset-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.asset{margin:0;min-width:0}.asset figcaption{font-size:11px;color:var(--muted);margin:0 0 6px}.asset-surface{display:flex;align-items:center;justify-content:center;min-height:95px;aspect-ratio:154/124;border:1px solid var(--line);border-radius:4px;background:#f3f5f6;position:relative;overflow:hidden}.asset-surface.checker{background-color:#f7f8f9;background-image:linear-gradient(45deg,#e3e8eb 25%,transparent 25%),linear-gradient(-45deg,#e3e8eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e3e8eb 75%),linear-gradient(-45deg,transparent 75%,#e3e8eb 75%);background-size:14px 14px;background-position:0 0,0 7px,7px -7px,-7px 0}.asset img{display:block;max-width:100%;max-height:100%;object-fit:contain;position:absolute;inset:0;margin:auto}.asset .missing{font-size:11px;color:var(--muted)}.asset-meta{margin-top:12px;font-size:11px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}.facts{display:grid;grid-template-columns:minmax(90px,auto) 1fr;gap:5px 12px;font-size:12px;line-height:1.6;margin:12px 0 0}.facts dt{color:var(--muted)}.facts dd{margin:0;overflow-wrap:anywhere}.details{border-top:1px solid var(--line);padding-top:11px;margin-top:12px}.details summary{font-size:12px;color:var(--accent);cursor:pointer}.details pre,.raw pre{font-family:Consolas,monospace;font-size:11px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0;max-height:320px;overflow:auto}.screenshot{margin:0;background:#edf1f3;border:1px solid var(--line);border-radius:4px;text-align:center;min-height:50px}.screenshot img{max-width:100%;max-height:550px;display:block;margin:auto}.screenshot-meta{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:8px;color:var(--muted);font-size:11px}.table-wrap{overflow:auto;max-height:410px}table{border-collapse:collapse;width:100%;font-size:11px;font-variant-numeric:tabular-nums;text-align:left}thead{position:sticky;top:0;background:#f6f8fa;z-index:1}th{font-weight:600;color:var(--muted);white-space:nowrap}th,td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}tbody tr:last-child td{border-bottom:0}tbody tr.selected{background:#eaf4f9}tbody tr.selectable:hover{background:#f3f8fb}.candidate-number{min-height:24px;font-size:11px;padding:1px 7px}.selected .candidate-number{border-color:var(--accent);color:var(--accent);font-weight:600}.numeric{text-align:right;white-space:nowrap}.nowrap{white-space:nowrap}.empty{font-size:12px;color:var(--muted);padding:20px 15px;line-height:1.7}.summary-panel>summary{list-style:none;cursor:pointer;padding:12px 15px;display:flex;gap:10px;align-items:center;justify-content:space-between}.summary-panel>summary::-webkit-details-marker{display:none}.summary-panel>summary:before{content:"▸";color:var(--muted)}.summary-panel[open]>summary:before{content:"▾"}.summary-title{flex:1;font-size:14px;font-weight:650}.summary-count{font-size:11px;color:var(--muted)}.summary-content{border-top:1px solid var(--line)}.summary-content .table-wrap{max-height:360px}.raw{padding:12px 15px;font-size:12px}.raw summary{cursor:pointer;color:var(--accent)}.summary-footnote{padding:9px 15px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}.counter{color:var(--muted);font-size:11px}.note{color:var(--muted);font-size:11px;line-height:1.7;margin:9px 0 0}.hidden{display:none!important}footer{font-size:11px;color:var(--muted);margin-top:16px;line-height:1.7}.keyboard-hint{font-size:10px;color:var(--muted)}
+    .comparison-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 28px}.comparison-grid .facts{margin:0}.comparison-summary{display:flex;gap:6px;flex-wrap:wrap}.tile-toolbar{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px 16px;padding:12px 15px;border-bottom:1px solid var(--line)}.tile-toolbar .field:last-child{flex:1;min-width:230px}.tile-layout{display:grid;grid-template-columns:minmax(200px,1.3fr) minmax(220px,.85fr) minmax(230px,1fr);gap:18px}.atlas-wrap{overflow:auto;border:1px solid var(--line);border-radius:4px;background-color:#f7f8f9;background-image:linear-gradient(45deg,#e3e8eb 25%,transparent 25%),linear-gradient(-45deg,#e3e8eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e3e8eb 75%),linear-gradient(-45deg,transparent 75%,#e3e8eb 75%);background-size:14px 14px;background-position:0 0,0 7px,7px -7px,-7px 0}.atlas-canvas{display:block;width:100%;height:auto;image-rendering:pixelated;cursor:pointer}.tile-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.tile-preview{display:block;width:100%;height:auto;aspect-ratio:1;image-rendering:pixelated;background-color:#f7f8f9;background-image:linear-gradient(45deg,#e3e8eb 25%,transparent 25%),linear-gradient(-45deg,#e3e8eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e3e8eb 75%),linear-gradient(-45deg,transparent 75%,#e3e8eb 75%);background-size:14px 14px;background-position:0 0,0 7px,7px -7px,-7px 0;border:1px solid var(--line);border-radius:4px}.tile-layout .facts{margin:0}.tile-mapping{font-family:Consolas,"Microsoft YaHei",monospace;font-size:12px;line-height:1.8;padding-top:10px;overflow-wrap:anywhere}.swatch.anchor{background:transparent;border:2px solid var(--amber)}.swatch.selected-tile{background:transparent;border:2px solid var(--accent)}
+    .atlas-wrap{display:flex;align-items:center;justify-content:center}.atlas-canvas{width:auto;max-width:100%;max-height:288px}
+    @media(min-width:1200px){.board-surface{image-rendering:pixelated}}@media(max-width:950px){.workbench{grid-template-columns:1fr}.asset-grid{grid-template-columns:repeat(4,1fr)}.asset-surface{min-height:70px}.heading{align-items:flex-start}.container{padding:14px 16px 24px}header{padding:18px 16px 14px}.tile-layout{grid-template-columns:1.2fr 1fr}.tile-layout>div:last-child{grid-column:1/-1}.tile-layout>div:last-child .facts{grid-template-columns:130px 1fr 130px 1fr}}@media(max-width:580px){h1{font-size:18px}.heading{flex-direction:column;gap:8px}.board-pair{grid-template-columns:1fr}.asset-grid{grid-template-columns:1fr 1fr}.toolbar{gap:9px}.field{min-width:calc(50% - 10px)}.frame-field,.candidate-field{min-width:100%}.stage-field,.observation-field{min-width:calc(50% - 10px)}.panel-body{padding:12px}.panel-heading{padding:11px 12px}.board-surface{max-width:576px}.screenshot img{max-height:430px}.comparison-grid,.tile-layout{grid-template-columns:1fr}.tile-layout>div:last-child .facts{grid-template-columns:110px 1fr}.tile-toolbar .field{min-width:100%}.tile-pair{max-width:360px}}@media print{body{background:#fff}.container{padding:10px}.toolbar,.overlay-controls,.download,.navigation,.raw{display:none}.panel{break-inside:avoid}.table-wrap{max-height:none}.workbench{grid-template-columns:1.5fr 1fr}header{padding:10px}.screenshot img{max-height:350px}details:not([open]){display:none}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="heading"><div><h1>局部备品识别 <span style="font-weight:400;color:var(--muted)">· 离线报告</span></h1><p class="subtitle">Partial recognition · evidence, candidates &amp; constraints</p></div><a class="download" href="results.json" download="results.json" id="download-json">下载原始 JSON ↗</a></div>
+    <p class="scope">真实局部样本仅来自回合 1（调参）；回合 2、7 的真实验证帧不含局部观测，尚不构成新增局部识别证据。派生帧与合成帧不计新增真实样本。穷尽仅针对当前离散搜索空间，不代表真实场景唯一。缺失的图案角度真值记为 N/A。</p>
+    <p class="scope" id="outcome"></p>
+  </header>
+  <main class="container">
+    <details class="panel summary-panel" open>
+      <summary><span class="summary-title">汇总 / Summary</span><span class="summary-count" id="summary-count"></span></summary>
+      <div class="summary-content"><div class="table-wrap" id="summary-table"></div><div class="summary-footnote hidden" id="tile-summary"></div><div class="summary-footnote" id="summary-note">按 split、kind、stage 分组。几何待定：类别或占格未确定；仅角度待定：类别与占格已确定，仅图案角度未收敛。图案角度收敛取自 direction_certain，不表示角度正确；正确数仅对 direction_evaluable 统计，缺失真值记 N/A。</div><details class="raw"><summary>全部原始指标 / All raw metrics</summary><div class="table-wrap" id="summary-metrics-table"></div></details><details class="raw"><summary>汇总与实验配置 / Raw summary &amp; configuration</summary><pre id="summary-json"></pre></details></div>
+    </details>
+    <details class="panel raw spaced"><summary>失败样本与原因 / Failures</summary><pre id="failure-json"></pre></details>
+    <section class="panel spaced" aria-label="样本与候选选择">
+      <div class="toolbar">
+        <div class="field"><label for="split-select">分组 / Split</label><select id="split-select"></select></div>
+        <div class="field"><label for="kind-select">类型 / Kind</label><select id="kind-select"></select></div>
+        <div class="field frame-field"><label for="frame-select">样本 / Frame</label><select id="frame-select"></select></div>
+        <div class="navigation"><button id="previous-frame" title="上一帧" aria-label="上一帧">←</button><button id="next-frame" title="下一帧" aria-label="下一帧">→</button></div>
+      </div>
+      <div class="provenance" id="provenance"></div>
+      <div class="toolbar toolbar-secondary">
+        <div class="field stage-field"><label for="stage-select">阶段 / Stage</label><select id="stage-select"></select></div>
+        <div class="field observation-field"><label for="observation-select">观测 / Observation</label><select id="observation-select"></select></div>
+        <div class="field candidate-field"><label for="candidate-select">候选 / Candidate · 完整列表</label><select id="candidate-select"></select></div>
+      </div>
+    </section>
+    <div id="frame-error" class="error hidden" role="status"></div>
+    <section id="tile-performance" class="panel spaced hidden">
+      <div class="panel-heading"><h2>Direct / Tiled · 一致性与成本</h2><span id="tile-parity-status" class="chip"></span></div>
+      <div class="panel-body"><div class="comparison-grid"><dl id="tile-parity-facts" class="facts"></dl><dl id="tile-cache-facts" class="facts"></dl></div><p class="note">Tiled 的 matching_ms 包含模板准备；资源导出单独计时。speedup = direct / tiled，小于 1 表示分块较慢。同帧评分等价不补足独立真实局部验证。</p><details class="details"><summary>对比与缓存原始字段 / Parity &amp; cache</summary><pre id="tile-performance-json"></pre></details></div>
+    </section>
+    <div class="workbench spaced">
+      <section class="panel">
+        <div class="panel-heading"><h2>棋盘证据 / Board inspection</h2><span class="counter" id="board-size">9 × 5 · 32 px/cell</span></div>
+        <div class="panel-body">
+          <div class="board-pair">
+            <div class="board-box"><h3>观测棋盘 / Observed</h3><img id="board-original" class="board-surface" alt="原始棋盘裁切，未叠加预测"><div class="board-caption" id="observed-counts"></div></div>
+            <div class="board-box"><h3>候选叠加 / Predicted overlay</h3><canvas id="board-canvas" class="board-surface" width="288" height="160" aria-label="候选、遮挡与差异的可视化叠加"></canvas><div class="board-caption" id="candidate-caption"></div></div>
+          </div>
+          <div class="overlay-controls">
+            <label><input id="toggle-overlay" type="checkbox" checked>预测像素</label>
+            <label><input id="toggle-footprint" type="checkbox" checked>预测占位</label>
+            <label><input id="toggle-occlusion" type="checkbox" checked>遮挡区 / unknown</label>
+            <label><input id="toggle-mismatch" type="checkbox">差异像素</label>
+            <label class="opacity-label">透明度 <input id="overlay-opacity" type="range" min="0" max="100" value="45"><output id="opacity-value">45%</output></label>
+          </div>
+          <div class="legend"><span><i class="swatch unknown"></i>遮挡，不计差异</span><span><i class="swatch mismatch"></i>可见区差异</span><span><i class="swatch footprint"></i>预测占位（独立图层）</span><span id="board-tile-legend" class="hidden"><i class="swatch selected-tile"></i>选中分块对应格</span></div>
+          <div class="status-line" id="overlay-status" role="status"></div>
+          <div class="status-line hidden" id="stage-score-info"></div>
+          <div class="comparison-summary spaced" id="observation-status" role="status"></div>
+          <dl class="facts" id="observation-facts"></dl>
+          <details class="details"><summary>阶段状态与约束 / Stage details</summary><pre id="stage-json"></pre></details>
+          <details class="details"><summary>观测与候选原始字段 / Raw observation &amp; candidate</summary><pre id="candidate-json"></pre></details>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><h2>参考与提取 / Reference evidence</h2><select id="item-select" aria-label="参考备品"></select></div>
+        <div class="panel-body">
+          <div class="asset-grid">
+            <figure class="asset"><figcaption>当前卡片 / Frame card</figcaption><div class="asset-surface"><img id="card-image" alt="当前帧备品卡片"><span class="missing hidden">不可用 / Unavailable</span></div></figure>
+            <figure class="asset"><figcaption>匹配参考 / Cached cut</figcaption><div class="asset-surface checker"><img id="cut-image" alt="带透明度的匹配参考图"><span class="missing hidden">不可用 / Unavailable</span></div></figure>
+            <figure class="asset"><figcaption>前景 / Foreground mask</figcaption><div class="asset-surface"><img id="mask-image" alt="参考前景掩码"><span class="missing hidden">不可用 / Unavailable</span></div></figure>
+            <figure class="asset"><figcaption>核心 / Core mask</figcaption><div class="asset-surface"><img id="core-image" alt="参考核心掩码"><span class="missing hidden">不可用 / Unavailable</span></div></figure>
+          </div>
+          <div class="asset-meta" id="reference-meta"></div>
+          <dl class="facts" id="candidate-facts"></dl>
+          <p class="note hidden" id="visible-evidence-note">分母始终为观测可靠前景权重；unknown 不贡献证据。开启格边限幅时，仅限制低可信边界的单像素误差，未覆盖率与矛盾率仍保留原始诊断；未限幅 MAE 单独显示。这不是已区分物体与格框的分割结果。</p>
+          <details class="details"><summary>参考、真值与提取状态 / Reference &amp; truth</summary><pre id="reference-json"></pre></details>
+          <details class="details"><summary>可见性掩码 / Visibility mask</summary><img id="visibility-image" class="board-surface" style="margin-top:10px" alt="当前帧可见性掩码"></details>
+        </div>
+      </section>
+    </div>
+    <section id="tile-inspector" class="panel spaced hidden">
+      <div class="panel-heading"><h2>分块模板 / Pose atlas</h2><span id="tile-template-id" class="counter"></span></div>
+      <div class="tile-toolbar"><div class="field"><label for="tile-layer-select">图层 / Layer</label><select id="tile-layer-select"><option value="image">RGBA</option><option value="mask">前景 / Foreground</option><option value="core">核心 / Core</option></select></div><div class="field"><label for="tile-select">分块 / Tile · 全部保留</label><select id="tile-select"></select></div></div>
+      <div class="panel-body"><div class="tile-layout">
+        <div><h3>完整图谱 / Full atlas</h3><div class="atlas-wrap"><canvas id="tile-atlas" class="atlas-canvas" aria-label="完整分块模板；可点击任意分块"></canvas></div><div class="legend"><span><i class="swatch anchor"></i>anchor tile</span><span><i class="swatch selected-tile"></i>选中分块</span><span><i class="swatch unknown"></i>未翻开 / 不评分</span></div></div>
+        <div><div class="tile-pair"><div><h3>模板块 / Template</h3><canvas id="tile-block" class="tile-preview" width="32" height="32" aria-label="选中模板分块放大"></canvas></div><div><h3>观测格 / Observed</h3><canvas id="tile-board-cell" class="tile-preview" width="32" height="32" aria-label="对应棋盘单元格放大"></canvas></div></div><div id="tile-mapping" class="tile-mapping"></div><p id="tile-status" class="status-line" role="status"></p></div>
+        <div><dl id="tile-facts" class="facts"></dl><p class="note hidden" id="tile-evidence-note">分块前景指标以该观测格的可靠前景权重为分母，像素数为未加权计数；无权重或未翻开记 N/A。</p><p class="note">图谱已按候选 angle、scale、offset 栅格化，直接显示导出像素。所有已翻开块按同一整件位姿检查；选中单块仅用于检查，不能据此声称单块独立确定整件。</p><details class="details"><summary>选中块与模板 / Raw tile</summary><pre id="tile-json"></pre></details></div>
+      </div></div>
+    </section>
+    <section class="panel spaced">
+      <div class="panel-heading"><h2>候选明细 / Candidate list</h2><span class="counter" id="candidate-count"></span></div>
+      <div class="table-wrap" id="candidate-table"></div>
+      <div class="summary-footnote">每个观测的候选全部列出；保留状态对应当前阶段，_global 为全局约束后的结果。当前判定取自 candidate_checks；Legacy scores / accepted 保留原始数组，不能代替新增阶段判定。叠加图仅作检查。</div>
+    </section>
+    <section class="panel spaced">
+      <div class="panel-heading"><h2>原始截图 / Original screenshot</h2><span class="counter" id="screenshot-size"></span></div>
+      <div class="panel-body"><figure class="screenshot"><img id="frame-image" alt="当前样本的完整原始截图"></figure><div class="screenshot-meta"><span id="frame-notes"></span><a id="open-frame" target="_blank" rel="noopener">打开原图 ↗</a></div><details class="details"><summary>帧元数据与生产识别 / Frame &amp; production state</summary><pre id="frame-json"></pre></details></div>
+    </section>
+    <footer>有分块模板时直接叠加已栅格化的 atlas；旧报告使用透明参考与原坐标变换、最近邻展示。差异红色为近似检查（RGB MAE &gt; 35，排除 unknown 与近似选中绿）。观测棋盘与单元格状态保持原始结果。</footer>
+  </main>
+  <script id="report-data" type="application/json">__REPORT_JSON__</script>
+  <script>
+  (() => {
+    'use strict';
+    const $ = id => document.getElementById(id);
+    let report;
+    try { report = JSON.parse($('report-data').textContent); }
+    catch (error) { $('frame-error').textContent = '报告数据无法读取 / Invalid report JSON: ' + error.message; $('frame-error').classList.remove('hidden'); return; }
+    const frames = Array.isArray(report.frames) ? report.frames : [];
+    const state = {frame:null, stageIndex:0, observationId:null, candidateIndex:null, itemIndex:0, renderToken:0,tileIdentity:null,tileColumn:0,tileRow:0,tileRenderToken:0};
+    const imageCache = new Map();
+    const pixelCache = new Map();
+    const CELL = 32, COLS = 9, ROWS = 5, WIDTH = COLS * CELL, HEIGHT = ROWS * CELL;
+    const TILE_DISPLAY_PIXELS = 96;
+    const matchingConfig = report.config?.matching || {};
+    const foregroundChroma = Number(matchingConfig.foreground_chroma ?? 30);
+    const foregroundDark = Number(matchingConfig.foreground_dark ?? 190);
+    const mismatchError = Number(matchingConfig.mismatch_error ?? 35);
+    const reliableBorder = Math.max(0, Number(matchingConfig.reliable_border ?? 3));
+    const text = value => value === null || value === undefined ? 'N/A' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const json = value => JSON.stringify(value, null, 2);
+    const number = (value, digits=3) => typeof value === 'number' && Number.isFinite(value) ? Number(value.toFixed(digits)).toLocaleString('en-US') : text(value);
+    const yesNo = value => value === true ? '是 / Yes' : value === false ? '否 / No' : 'N/A';
+    const percent = value => typeof value === 'number' && Number.isFinite(value) ? number(value*100,1) + '%' : 'N/A';
+    const itemName = index => {
+      const entry = report.metadata?.items?.[index] ?? report.metadata?.item_names?.[index];
+      return typeof entry === 'string' ? entry : entry?.name ?? '备品 ' + (Number(index) + 1);
+    };
+    const anchorLabel = anchor => {
+      if (Array.isArray(anchor)) return '(' + anchor.join(', ') + ')';
+      if (anchor && typeof anchor === 'object' && 'x' in anchor && 'y' in anchor) return '(' + anchor.x + ', ' + anchor.y + ')';
+      return text(anchor);
+    };
+    const same = (a,b) => a !== undefined && b !== undefined && text(a) === text(b);
+    const assetPath = (frame, name) => [String(frame.asset_dir ?? frame.id),String(name)].map(part => part.split('/').map(encodeURIComponent).join('/')).join('/');
+    const option = (value,label) => { const node = document.createElement('option'); node.value = String(value); node.textContent = label; return node; };
+    const chip = (label, tone='') => { const node = document.createElement('span'); node.className = 'chip ' + tone; node.textContent = label; return node; };
+    function facts(target, entries) {
+      target.replaceChildren();
+      for (const [key,value] of entries) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = key; dd.textContent = value; target.append(dt,dd); }
+    }
+    function buildTable(headers, rows) {
+      const table = document.createElement('table'), head = document.createElement('thead'), header = document.createElement('tr'), body = document.createElement('tbody');
+      for (const title of headers) { const th = document.createElement('th'); th.textContent = title; header.append(th); }
+      head.append(header);
+      for (const values of rows) { const tr = document.createElement('tr'); for (const value of values) { const td = document.createElement('td'); td.textContent = text(value); tr.append(td); } body.append(tr); }
+      table.append(head,body); return table;
+    }
+    function empty(target,message) { const node = document.createElement('div'); node.className = 'empty'; node.textContent = message; target.replaceChildren(node); }
+    function summaryRows(summary) {
+      if (Array.isArray(summary)) return summary.filter(row => row && typeof row === 'object' && !Array.isArray(row));
+      if (!summary || typeof summary !== 'object') return [];
+      for (const key of ['rows','by_split_kind_stage','groups','table','metrics']) if (Array.isArray(summary[key])) return summaryRows(summary[key]);
+      const rows = [];
+      function visit(value,path) {
+        if (!value || typeof value !== 'object') return;
+        if (Array.isArray(value)) { value.forEach(entry => visit(entry,path)); return; }
+        const explicit = ['split','kind','stage'].some(key => Object.hasOwn(value,key));
+        const numerics = Object.entries(value).filter(([key,item]) => typeof item === 'number' && Number.isFinite(item) && !['split','kind','stage'].includes(key));
+        if (numerics.length && (explicit || path.length >= 3)) {
+          const dims = path.slice(-3);
+          rows.push({split:value.split ?? dims[0] ?? '全部',kind:value.kind ?? dims[1] ?? '全部',stage:value.stage ?? dims[2] ?? '全部',...value});
+          return;
+        }
+        for (const [key,item] of Object.entries(value)) if (item && typeof item === 'object') visit(item,[...path,key]);
+      }
+      visit(summary,[]);
+      if (!rows.length && Object.values(summary).some(value => typeof value === 'number')) rows.push({split:'全部',kind:'全部',stage:'全部',...summary});
+      return rows;
+    }
+    function observationStatus(observation) {
+      const geometryResolved = observation.category_certain === true && observation.occupancy_certain === true;
+      const geometryPending = observation.category_certain === false || observation.occupancy_certain === false;
+      const angleOnlyPending = geometryResolved && observation.direction_certain !== true;
+      const label = angleOnlyPending ? '类别与占格已确定，仅图案角度待定' : geometryResolved ? '类别与占格已确定，图案角度已收敛' : geometryPending ? '类别或占格待定' : '类别或占格状态 N/A';
+      return {geometryResolved,geometryPending,angleOnlyPending,label,tone:geometryResolved && !angleOnlyPending ? 'good' : geometryPending || angleOnlyPending ? 'warn' : ''};
+    }
+    function summaryStatusCounts(row) {
+      let stagesMatched = 0, complete = true;
+      const observed = [];
+      for (const frame of frames) if (same(frame.split,row.split) && same(frame.kind,row.kind)) {
+        for (const stage of frame.stages ?? []) if (same(stage.name,row.stage ?? row.name)) {
+          stagesMatched++;
+          if (Array.isArray(stage.observations)) observed.push(...stage.observations);
+          else complete = false;
+        }
+      }
+      const coverage = stagesMatched > 0 && complete && (typeof row.observations !== 'number' || observed.length === row.observations);
+      const statuses = observed.map(observationStatus);
+      const geometryKnown = coverage && statuses.every(status => status.geometryResolved || status.geometryPending);
+      const angleKnown = geometryKnown && observed.every((observation,index) => !statuses[index].geometryResolved || typeof observation.direction_certain === 'boolean');
+      return {
+        geometryPending:row.geometry_undecided ?? (geometryKnown ? statuses.filter(status => status.geometryPending).length : null),
+        angleOnlyPending:row.angle_only_undecided ?? (angleKnown ? statuses.filter(status => status.angleOnlyPending).length : null)
+      };
+    }
+    function stageOutcome(failures) {
+      const finalObservations=frames.flatMap(frame=>frame.stages?.find(stage=>stage.name==='visible_foreground_global')?.observations??[]);
+      if(finalObservations.length){
+        const known=finalObservations.filter(o=>o.correct_candidate_retained!==null&&o.correct_candidate_retained!==undefined);
+        return '当前最终阶段（含真实、派生及合成）：正确候选保留 '+known.filter(o=>o.correct_candidate_retained).length+'/'+known.length+'；错误唯一判断 '+finalObservations.filter(o=>o.false_unique).length+'。其余评分及阈值对照的失败单独保留在明细中。计数是相关观测，独立真实局部验证与图案角度真值仍不足。';
+      }
+      const baselineFailures = new Set(), newFailures = new Set(), newEvaluated = new Set();
+      for (const frame of frames) for (const stage of frame.stages ?? []) {
+        const optimized = stage.scoring?.kind === 'visible_foreground' || /^bidirectional_threshold_/.test(String(stage.name));
+        for (const observation of stage.observations ?? []) {
+          const key = String(frame.asset_dir ?? frame.id) + ':' + text(observation.id ?? observation.anchor);
+          const failed = observation.false_unique === true || observation.correct_candidate_retained === false;
+          if (optimized) { newEvaluated.add(key); if (failed) newFailures.add(key); }
+          else if (failed) baselineFailures.add(key);
+        }
+      }
+      if (newEvaluated.size) {
+        const cleared = [...baselineFailures].filter(key => newEvaluated.has(key) && !newFailures.has(key)).length;
+        const cleaned = frames.flatMap(frame => frame.matching?.cards ?? []).filter(card => card.extraction?.removed_raw_pixels > 0 && !card.extraction.reused_on_finish).length;
+        const extractionNote = cleaned ? '本次完成 ' + cleaned + ' 次参考卡片边缘背景清理（不含 Finish 复用），详见参考与提取。' : '';
+        return extractionNote + 'Legacy 阶段保留 ' + baselineFailures.size + ' 个失败观测供对照；新增评分/阈值阶段中，' + cleared + ' 个此前失败观测未再触发失败指标，仍有 ' + newFailures.size + ' 个失败观测（按帧与观测去重）。各评分阶段共用本次提取后的候选，评分本身无法补回提取或搜索中已丢失的候选。独立真实局部验证与图案角度真值仍不足。';
+      }
+      return (baselineFailures.size || failures.length ? '报告存在阶段失败；具体结果与原因见各阶段及失败明细。' : '本报告只完成离线回放。') + '独立真实局部验证与图案角度真值仍不足，不能据此正式启用局部推荐。';
+    }
+    function renderSummary() {
+      const rows = summaryRows(report.summary), columns = [];
+      for (const row of rows) for (const [key,value] of Object.entries(row)) if ((typeof value === 'number' && Number.isFinite(value) || value === null) && !['split','kind','stage'].includes(key) && !columns.includes(key)) columns.push(key);
+      if (rows.length && columns.length) {
+        $('summary-table').replaceChildren(buildTable(['分组 / 类型','阶段','帧 / 观测','类别确定','占格确定','几何待定','仅角度待定','图案角度收敛','图案角度正确 / 可评估'],rows.map(row => {
+          const status = summaryStatusCounts(row);
+          const angleCorrect = typeof row.direction_evaluable === 'number' && row.direction_evaluable > 0 ? number(row.direction_correct) + ' / ' + number(row.direction_evaluable) : row.direction_evaluable === 0 ? 'N/A / 0' : 'N/A';
+          return [text(row.split) + ' / ' + text(row.kind),row.stage ?? row.name ?? 'N/A',number(row.frames) + ' / ' + number(row.observations),number(row.category_certain),number(row.occupancy_certain),number(status.geometryPending),number(status.angleOnlyPending),number(row.direction_certain),angleCorrect];
+        })));
+        $('summary-metrics-table').replaceChildren(buildTable(['Split','Kind','Stage',...columns],rows.map(row => [row.split ?? 'N/A',row.kind ?? 'N/A',row.stage ?? row.name ?? 'N/A',...columns.map(key => row[key] === undefined ? '—' : number(row[key]))])));
+      } else {
+        empty($('summary-table'),'暂无可直接展开的分组数值；完整汇总可在下方查看 / See raw summary below.');
+        empty($('summary-metrics-table'),'暂无分组数值 / No grouped metrics.');
+      }
+      const realFrames = frames.filter(frame => /^(real|real_round|original|captured|native)$/i.test(String(frame.kind)));
+      const realGroups = new Set(realFrames.filter(frame => frame.group !== null && frame.group !== undefined).map(frame => text(frame.group)));
+      $('summary-count').textContent = frames.length + ' 帧 / frames · ' + realFrames.length + ' 个真实帧 · ' + realGroups.size + ' 个真实 group';
+      const tileSummary = report.tile_comparison_summary ?? report.summary?.tile_comparison_summary;
+      $('tile-summary').classList.toggle('hidden',!tileSummary);
+      if (tileSummary) {
+        $('tile-summary').classList.add('comparison-summary');
+        $('tile-summary').replaceChildren(chip('Direct / Tiled'),chip('帧 ' + number(tileSummary.frames)),chip('通过 ' + number(tileSummary.passed),'good'),chip('失败 ' + number(tileSummary.failed),tileSummary.failed > 0 ? 'bad' : ''),chip('direct ' + number(tileSummary.direct_matching_ms) + ' ms'),chip('tiled ' + number(tileSummary.tiled_matching_ms) + ' ms（含准备）'));
+        if (tileSummary.speedup !== undefined) $('tile-summary').append(chip('speedup ' + speedupLabel(tileSummary.speedup)));
+      }
+      $('summary-json').textContent = json({metadata:report.metadata,config:report.config,summary:report.summary,tile_comparison_summary:tileSummary});
+      const failures=report.failures ?? frames.flatMap(frame=>(frame.stages??[]).flatMap(stage=>(stage.observations??[]).filter(o=>o.false_unique || o.correct_candidate_retained===false).map(o=>({frame:frame.id,stage:stage.name,...o}))));
+      $('failure-json').textContent=json(failures);
+      $('outcome').textContent=stageOutcome(failures);
+    }
+    function initializeFilters() {
+      for (const [id,key] of [['split-select','split'],['kind-select','kind']]) {
+        const select = $(id); select.append(option('','全部 / All'));
+        for (const value of [...new Set(frames.map(frame => text(frame[key])))]) select.append(option(value,value));
+        select.addEventListener('change',() => refreshFrames());
+      }
+      refreshFrames();
+    }
+    function filteredFrames() { return frames.filter(frame => (!$('split-select').value || text(frame.split) === $('split-select').value) && (!$('kind-select').value || text(frame.kind) === $('kind-select').value)); }
+    function refreshFrames() {
+      const available = filteredFrames(), select = $('frame-select'); select.replaceChildren();
+      for (const frame of available) select.append(option(frame.id,String(frame.id) + ' · ' + text(frame.split) + ' / ' + text(frame.kind)));
+      if (!available.length) { select.append(option('','无样本 / No frames')); select.disabled = true; state.frame = null; renderFrame(); return; }
+      select.disabled = false;
+      const chosen = available.find(frame => String(frame.id) === String(state.frame?.id)) ?? available[0];
+      select.value = String(chosen.id); selectFrame(chosen);
+    }
+    function selectFrame(frame) { state.frame = frame; state.stageIndex = Math.max(0,(frame.stages??[]).findIndex(stage=>stage.name==='visible_foreground_global')); state.observationId = null; state.candidateIndex = null; renderFrame(); }
+    function currentStage() { return state.frame?.stages?.[state.stageIndex] ?? null; }
+    function currentMatching() { return state.frame?.matching ?? {}; }
+    function observations() {
+      const matched = Array.isArray(currentMatching().observations) ? currentMatching().observations : [];
+      const staged = currentStage()?.observations;
+      const source = Array.isArray(staged) ? staged : matched;
+      return source.map((observed,index) => ({...matched.find(entry => same(entry.id,observed.id) || (!observed.id && same(entry.anchor,observed.anchor))),...observed,id:observed.id ?? 'observation-' + index}));
+    }
+    function currentObservation() { return observations().find(observation => String(observation.id) === String(state.observationId)) ?? null; }
+    function allCandidates() { return Array.isArray(currentMatching().candidates) ? currentMatching().candidates : []; }
+    function candidateEntries() {
+      const observation = currentObservation();
+      if (!observation) return [];
+      return allCandidates().map((candidate,index) => ({candidate,index})).filter(({candidate}) => same(candidate.observation_id,observation.id) || (candidate.observation_id === undefined && same(candidate.anchor,observation.anchor)));
+    }
+    function currentCandidate() { return Number.isInteger(state.candidateIndex) ? allCandidates()[state.candidateIndex] ?? null : null; }
+    function retained(index) { const indices = currentObservation()?.retained_indices; return Array.isArray(indices) ? indices.includes(index) : null; }
+    function candidateCheck(index) {
+      const stage = currentStage(), check = stage?.candidate_checks?.[index];
+      if (check) return check;
+      const scoring = stage?.scoring, legacyIndex = scoring?.legacy_score_index;
+      if (scoring?.kind === 'legacy' && Number.isInteger(legacyIndex) && legacyIndex >= 0 && allCandidates()[index]?.scores?.[legacyIndex] !== undefined) return {score:allCandidates()[index].scores[legacyIndex],reasons:[]};
+      return null;
+    }
+    function retainedLabel(index) {
+      const ranking = currentObservation()?.competition;
+      if (ranking?.baseline_retained_indices?.includes(index) && !ranking.retained_indices.includes(index)) return 'Δ 分数带排除';
+      const prefix = /_global$/.test(String(currentStage()?.name)) ? '全局' : '阶段';
+      return retained(index) === true ? prefix + '保留' : retained(index) === false ? prefix + '排除' : '未筛选';
+    }
+    function correspondingGlobal(index) {
+      const stage = currentStage(), observation = currentObservation();
+      if (!stage || !observation) return null;
+      const name = /_global$/.test(String(stage.name)) ? stage.name : stage.name + '_global';
+      const globalStage = state.frame?.stages?.find(entry => entry.name === name);
+      const globalObservation = globalStage?.observations?.find(entry => same(entry.id,observation.id) || same(entry.anchor,observation.anchor));
+      const ranking = globalObservation?.competition;
+      const dominated = ranking?.baseline_retained_indices?.includes(index) && !ranking.retained_indices.includes(index);
+      return Array.isArray(globalObservation?.retained_indices) ? {name,retained:globalObservation.retained_indices.includes(index),reason:dominated ? '该类别与占格的最低分超过最佳分 + Δ；全部分数带提案已通过联合相容检查' : allCandidates()[index]?.global_feasibility?.[name]?.reason ?? globalObservation.reason} : null;
+    }
+    function retainedPairLabel(index) {
+      const global = correspondingGlobal(index);
+      return retainedLabel(index) + (global && !/_global$/.test(String(currentStage()?.name)) ? ' / 全局' + (global.retained ? '保留' : '排除') : '');
+    }
+    function reasonsLabel(check) { return Array.isArray(check?.reasons) && check.reasons.length ? check.reasons.join('；') : check?.accepted === false ? '未提供拒绝原因' : '—'; }
+    function evidenceFacts(evidence,prefix='') {
+      if (!evidence) return [];
+      const rows = [[prefix + '可见前景 MAE',number(evidence.foreground_color_error)],[prefix + '未覆盖 / 矛盾前景',percent(evidence.missing_foreground_fraction) + ' / ' + percent(evidence.contradicted_foreground_fraction)],[prefix + '观测权重 / 像素数',number(evidence.reliable_weight) + ' / ' + number(evidence.reliable_pixels)]];
+      if(evidence.uncapped_foreground_color_error!==undefined)rows.push([prefix+'未限幅前景 MAE',number(evidence.uncapped_foreground_color_error)],[prefix+'低可信 / 限幅像素',number(evidence.low_confidence_pixels)+' / '+number(evidence.capped_pixels)]);
+      return rows;
+    }
+    function renderFrame() {
+      const frame = state.frame, available = filteredFrames(), position = available.indexOf(frame);
+      $('previous-frame').disabled = position <= 0; $('next-frame').disabled = position < 0 || position >= available.length - 1;
+      $('provenance').replaceChildren();
+      renderTilePerformance();
+      if (!frame) {
+        $('stage-select').replaceChildren(option('','无阶段')); $('stage-select').disabled = true;
+        $('observation-select').replaceChildren(option('','无观测')); $('observation-select').disabled = true;
+        $('candidate-select').replaceChildren(option('','无候选')); $('candidate-select').disabled = true;
+        $('item-select').replaceChildren(option('','无参考')); $('item-select').disabled = true;
+        for (const id of ['board-original','frame-image','visibility-image']) $(id).removeAttribute('src');
+        $('frame-json').textContent = ''; renderObservation(); renderReference(); return;
+      }
+      $('provenance').append(chip(text(frame.split)),chip(text(frame.kind),/synthetic|derived|augmented/i.test(text(frame.kind)) ? 'blue' : ''),chip('group: ' + text(frame.group)),chip('sequence: ' + text(frame.sequence)),chip('order: ' + text(frame.order)));
+      const provenanceSource = document.createElement('span'); provenanceSource.className = 'source'; provenanceSource.textContent = 'source: ' + text(frame.source); $('provenance').append(provenanceSource);
+      const error = frame.error ?? frame.failure ?? currentMatching().interruption;
+      $('frame-error').classList.toggle('hidden',!error); $('frame-error').textContent = error ? '状态 / Status: ' + text(error) : '';
+      setImage($('board-original'),assetPath(frame,'board.png'));
+      setImage($('frame-image'),assetPath(frame,'frame.png'),image => { $('screenshot-size').textContent = image.naturalWidth + ' × ' + image.naturalHeight + ' px'; });
+      setImage($('visibility-image'),assetPath(frame,'visibility.png'));
+      $('open-frame').href = assetPath(frame,'frame.png'); $('frame-notes').textContent = frame.notes ? text(frame.notes) : '原始截图供定位与来源核查 / Original evidence';
+      $('frame-json').textContent = json({id:frame.id,asset_dir:frame.asset_dir,split:frame.split,kind:frame.kind,source:frame.source,group:frame.group,sequence:frame.sequence,order:frame.order,notes:frame.notes,production:frame.production,legacy:frame.legacy});
+      const stages = Array.isArray(frame.stages) ? frame.stages : [], stageSelect = $('stage-select'); stageSelect.replaceChildren();
+      stages.forEach((stage,index) => stageSelect.append(option(index,stage.name ?? '阶段 ' + (index + 1))));
+      if (!stages.length) stageSelect.append(option(0,'匹配结果 / Matching'));
+      stageSelect.disabled = !stages.length; state.stageIndex = Math.min(state.stageIndex,Math.max(0,stages.length - 1)); stageSelect.value = String(state.stageIndex);
+      const counts = {};
+      for (const cell of frame.production?.cells ?? []) counts[cell] = (counts[cell] ?? 0) + 1;
+      $('observed-counts').replaceChildren(...Object.entries(counts).map(([name,count]) => chip(name + ': ' + count,name === 'unknown' ? 'blue' : '')));
+      refreshObservations();
+    }
+    function refreshObservations() {
+      const entries = observations(), select = $('observation-select'); select.replaceChildren();
+      for (const observation of entries) select.append(option(observation.id,text(observation.id) + ' · anchor ' + anchorLabel(observation.anchor)));
+      if (!entries.length) select.append(option('','无观测 / No observations'));
+      select.disabled = !entries.length;
+      const chosen = entries.find(observation => String(observation.id) === String(state.observationId)) ?? entries[0];
+      state.observationId = chosen?.id ?? null; select.value = String(state.observationId ?? '');
+      refreshCandidates();
+    }
+    function refreshCandidates() {
+      const entries = candidateEntries(), select = $('candidate-select'); select.replaceChildren();
+      for (const {candidate,index} of entries) select.append(option(index,'#' + index + ' · ' + itemName(candidate.item_index) + ' · θ ' + number(candidate.angle) + '° · ' + retainedLabel(index)));
+      if (!entries.length) select.append(option('','无候选 / No candidates'));
+      select.disabled = !entries.length;
+      if (!entries.some(entry => entry.index === state.candidateIndex)) state.candidateIndex = entries.find(entry => retained(entry.index))?.index ?? entries[0]?.index ?? null;
+      select.value = String(state.candidateIndex ?? '');
+      renderObservation(); renderCandidateTable(); refreshItems();
+    }
+    function renderObservation() {
+      const observation = currentObservation(), stage = currentStage(), candidate = currentCandidate(), matching = currentMatching(), check = candidateCheck(state.candidateIndex);
+      const status = observation ? observationStatus(observation) : null;
+      $('observation-status').replaceChildren(...(status ? [chip(status.label,status.tone)] : []));
+      facts($('observation-facts'),observation ? [
+        ['锚点 / Anchor',anchorLabel(observation.anchor)],['格内纹理标准差',number(observation.texture_std)],['可靠前景（格内）',number(observation.reliable_foreground_pixels)],['可靠前景（格边）',number(observation.border_reliable_foreground_pixels)],['加权前景证据量',number(observation.effective_foreground_pixels)],['证据充分',yesNo(observation.sufficient_evidence)],
+        ['类别确定',yesNo(observation.category_certain)],['占格确定',yesNo(observation.occupancy_certain)],['图案角度收敛',yesNo(observation.direction_certain)],
+        ...(observation.competition ? [
+          ['几何组最佳 / 次佳',number(observation.competition.best_score) + ' / ' + number(observation.competition.runner_up_score)],
+          ['最佳 / 次佳分差（诊断）',number(observation.competition.absolute_gap)],
+          ['分数带上界（含边界）',number(observation.competition.cutoff)],
+          ['Δ 分数带筛选',observation.decision_basis === 'score_margin_and_joint_feasibility' ? '已应用；联合相容通过' : '保留原候选'],
+          ['筛选依据',observation.decision_basis === 'score_margin_and_joint_feasibility' ? '保留最低分 ≤ 最佳分 + Δ 的全部类别与占格及其姿态；可能仍有多个几何，不代表数学唯一或角度正确' : text(observation.competition.reason)]
+        ] : []),
+        ['阶段原因',text(observation.reason)],['搜索完成',matching.complete === true ? '当前有限搜索完成 / Finite search complete' : matching.complete === false ? '未完成 / Incomplete' : 'N/A']
+      ] : [['观测状态','无观测或匹配未生成 / No observation or matching unavailable'],['搜索完成',yesNo(matching.complete)]]);
+      $('stage-json').textContent = json(stage ?? {complete:matching.complete,interruption:matching.interruption,evaluations:matching.evaluations,extraction_ms:matching.extraction_ms,matching_ms:matching.matching_ms});
+      const global = correspondingGlobal(state.candidateIndex);
+      $('candidate-json').textContent = json({observation,candidate_index:state.candidateIndex,candidate,scoring:stage?.scoring,candidate_check:check,retained_in_stage:retained(state.candidateIndex),corresponding_global:global});
+      $('candidate-caption').replaceChildren();
+      if (candidate) {
+        $('candidate-caption').append(chip(itemName(candidate.item_index)),chip('θ ' + number(candidate.angle) + '°'),chip(retainedLabel(state.candidateIndex),retained(state.candidateIndex) === true ? 'good' : ''));
+        if (global && !/_global$/.test(String(stage?.name))) $('candidate-caption').append(chip(global.retained ? '对应全局保留' : '对应全局排除',global.retained ? 'good' : ''));
+        if (stage?.scoring || check) $('candidate-caption').append(chip('评分 ' + number(check?.score) + ' / 阈值 ' + number(stage?.scoring?.threshold)),chip(check?.accepted === true ? '评分通过' : check?.accepted === false ? '评分拒绝' : '评分判定 N/A',check?.accepted === true ? 'good' : check?.accepted === false ? 'bad' : ''));
+      }
+      else $('candidate-caption').append(chip('无候选 / No candidate'));
+      $('stage-score-info').classList.toggle('hidden',!candidate || !stage?.scoring && !check);
+      $('stage-score-info').textContent = '评分 ' + text(stage?.scoring?.kind) + ' · 公式：' + text(stage?.scoring?.formula) + ' · 拒绝原因：' + reasonsLabel(check) + (check?.accepted !== false && global && !global.retained && global.reason ? ' · 全局原因：' + text(global.reason) : '');
+      renderTiles(); drawOverlay();
+    }
+    function renderCandidateTable() {
+      const entries = candidateEntries(); $('candidate-count').textContent = entries.length + ' 个候选 / candidates · 全部显示';
+      if (!entries.length) { empty($('candidate-table'),'此观测暂无候选 / No candidates for this observation.'); return; }
+      const headers = ['候选','保留状态','当前评分 / 阈值','当前判定 / 拒绝原因','备品','角度 θ','位置 / Rect','Fill','Scale / Offset','证据像素 / Effective','颜色 / Edge','预测不一致 / 未解释','Legacy scores','Legacy accepted'];
+      const table = buildTable(headers,[]), body = table.tBodies[0];
+      for (const {candidate,index} of entries) {
+        const tr = document.createElement('tr'); tr.className = 'selectable' + (index === state.candidateIndex ? ' selected' : '');
+        const check = candidateCheck(index);
+        const values = ['',retainedPairLabel(index),check || currentStage()?.scoring ? number(check?.score) + ' / ' + number(currentStage()?.scoring?.threshold) : '—',check ? (check.accepted === true ? '通过' : check.accepted === false ? '拒绝' : 'N/A') + ' · ' + reasonsLabel(check) : '—',itemName(candidate.item_index),number(candidate.angle) + '°',rectLabel(candidate.rect),number(candidate.fill),number(candidate.scale) + ' / ' + text(candidate.offset),number(candidate.evidence_pixels) + ' / ' + number(candidate.effective_evidence),number(candidate.color_error) + ' / ' + number(candidate.edge_error),number(candidate.predicted_mismatch) + ' / ' + number(candidate.unexplained_foreground),(candidate.scores ?? []).map(value => number(value)).join(' / '),(candidate.accepted ?? []).map(value => value ? '✓' : '×').join(' / ')];
+        values.forEach((value,column) => { const td = document.createElement('td'); if (column === 0) { const button = document.createElement('button'); button.className = 'candidate-number'; button.textContent = '#' + index; button.setAttribute('aria-label','选择候选 ' + index); button.addEventListener('click',() => selectCandidate(index)); td.append(button); } else td.textContent = value; if ([0,1,2,4,5,7].includes(column)) td.classList.add('nowrap'); tr.append(td); });
+        tr.addEventListener('click',event => { if (!event.target.closest('button')) selectCandidate(index); }); body.append(tr);
+      }
+      $('candidate-table').replaceChildren(table);
+    }
+    function rectLabel(rect) { return rect ? '(' + number(rect.x) + ', ' + number(rect.y) + ') ' + number(rect.width) + ' × ' + number(rect.height) : 'N/A'; }
+    function selectCandidate(index) { state.candidateIndex = index; $('candidate-select').value = String(index); renderObservation(); renderCandidateTable(); refreshItems(); }
+    function refreshItems() {
+      const cards = Array.isArray(currentMatching().cards) ? currentMatching().cards : [], indices = new Set();
+      for (const card of cards) if (card.item_index !== undefined) indices.add(Number(card.item_index));
+      for (const candidate of allCandidates()) if (candidate.item_index !== undefined) indices.add(Number(candidate.item_index));
+      for (const truth of state.frame?.truth ?? []) if (truth.item_index !== undefined) indices.add(Number(truth.item_index));
+      if (!indices.size && state.frame) [0,1,2].forEach(index => indices.add(index));
+      const sorted = [...indices].filter(Number.isFinite).sort((a,b) => a-b), select = $('item-select'); select.replaceChildren(...sorted.map(index => option(index,itemName(index))));
+      const candidate = currentCandidate();
+      if (candidate) state.itemIndex = Number(candidate.item_index);
+      if (!indices.has(state.itemIndex)) state.itemIndex = sorted[0] ?? 0;
+      select.disabled = !sorted.length; select.value = String(state.itemIndex); renderReference();
+    }
+    function renderReference() {
+      const frame = state.frame, candidate = currentCandidate(), matching = currentMatching(), item = state.itemIndex;
+      for (const [id,prefix] of [['card-image','card'],['cut-image','cut'],['mask-image','mask'],['core-image','core']]) setImage($(id),frame ? assetPath(frame,prefix + '-' + item + '.png') : null);
+      const card = matching.cards?.find(entry => Number(entry.item_index) === Number(item));
+      const truth = (frame?.truth ?? []).filter(entry => Number(entry.item_index) === Number(item));
+      const anchoredTruth = truth.filter(entry => !currentObservation() || same(entry.anchor,currentObservation().anchor));
+      const directions = anchoredTruth.map(entry => entry.angle).filter(angle => angle !== null && angle !== undefined);
+      $('reference-meta').textContent = frame ? '当前卡片：' + (frame.asset_dir ?? frame.id) + '/card-' + item + '.png · 匹配参考来源：' + text(card?.reference_source) + ' · Finish：' + text(card?.finished ?? frame.production?.finish) + '。Finish 帧中的当前卡片与缓存 cut 可不同。' : '无参考 / No reference';
+      facts($('candidate-facts'),[
+        ['参考来源',text(card?.reference_source)],['参考指纹',text(card?.fingerprint)],['前景 / Core',number(card?.mask_pixels) + ' / ' + number(card?.core_pixels)],['触及裁切边界',yesNo(card?.touches_crop)],
+        ...(card?.extraction?.enabled ? [
+          ['边缘背景处理',({cleaned:'已清理重复边缘背景',unchanged:'保持原提取',edge_unresolved:'触边原因未确定，保留原提取',cleaned_edge_unresolved:'已清理，仍有触边',invalid_after_cleanup:'清理后证据不足',legacy_background_unavailable:'背景证据不足'})[card.extraction.status] ?? card.extraction.status],
+          ['移除的原始前景像素',number(card.extraction.removed_raw_pixels) + (card.extraction.reused_on_finish ? '（Finish 复用来源记录）' : '')],
+          ['清理前 / 后前景',number(card.extraction.legacy_mask_pixels) + ' / ' + number(card.extraction.repaired_mask_pixels)]
+        ] : []),
+        ...evidenceFacts(candidate?.visible_evidence),
+        ['预测占位',candidate ? rectLabel(candidate.rect) : 'N/A'],['搜索角度',candidate ? number(candidate.angle) + '°' : 'N/A'],['方向真值',directions.length ? directions.map(value => number(value) + '°').join(', ') : 'N/A'],['缩放 / 偏移',candidate ? number(candidate.scale) + ' / ' + text(candidate.offset) : 'N/A'],['颜色 / 边缘误差',candidate ? number(candidate.color_error) + ' / ' + number(candidate.edge_error) : 'N/A'],['原三组接受 / Legacy',candidate ? (candidate.accepted ?? []).map(value => value ? '✓' : '×').join(' / ') : 'N/A']
+      ]);
+      $('visible-evidence-note').classList.toggle('hidden',!candidate?.visible_evidence);
+      $('reference-json').textContent = json({card,truth,matching_complete:matching.complete,interruption:matching.interruption,evaluations:matching.evaluations,extraction_ms:matching.extraction_ms,matching_ms:matching.matching_ms,reference_ready:frame?.production?.reference_ready});
+    }
+    function speedupLabel(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return 'N/A';
+      return number(value) + '×（' + (value < 1 ? '分块较慢' : value > 1 ? '分块较快' : '耗时相同') + '）';
+    }
+    function bytesLabel(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return 'N/A';
+      return number(value,0) + ' B' + (value >= 1024 ? ' · ' + number(value/(value >= 1048576 ? 1048576 : 1024),2) + (value >= 1048576 ? ' MiB' : ' KiB') : '');
+    }
+    function renderTilePerformance() {
+      const frame = state.frame, comparison = frame?.tile_comparison, cache = frame?.matching?.tile_cache;
+      $('tile-performance').classList.toggle('hidden',!comparison && !cache);
+      if (!comparison && !cache) return;
+      const equivalent = comparison?.equivalent;
+      $('tile-parity-status').className = 'chip ' + (equivalent === true ? 'good' : equivalent === false ? 'bad' : '');
+      $('tile-parity-status').textContent = equivalent === true ? '同帧等价 / Parity passed' : equivalent === false ? '存在差异 / Parity failed' : '一致性 N/A';
+      facts($('tile-parity-facts'),[
+        ['候选 direct / tiled',number(comparison?.candidate_count_direct) + ' / ' + number(comparison?.candidate_count_tiled)],
+        ['缺失 / 新增候选',number(comparison?.missing_candidates) + ' / ' + number(comparison?.extra_candidates)],
+        ['最大评分差',number(comparison?.max_score_delta,6)],['决策一致',yesNo(comparison?.decisions_equal)],
+        ['direct 匹配耗时',number(comparison?.direct_matching_ms ?? frame.matching_direct?.matching_ms) + ' ms'],
+        ['tiled 匹配耗时',number(comparison?.tiled_matching_ms ?? frame.matching?.matching_ms) + ' ms（含准备）'],
+        ['speedup',speedupLabel(comparison?.speedup)],
+        ['资源导出耗时',number(frame.matching?.asset_export_ms ?? frame.asset_export_ms) + ' ms（单列）'],
+        ['粗搜补查 / 恢复角度位置组',number(frame.matching?.rescue_evaluations??0)+' / '+number(frame.matching?.recovered_basins??0)]
+      ]);
+      facts($('tile-cache-facts'),[
+        ['模板准备（已包含）',number(cache?.preparation_ms) + ' ms'],['命中 / 未命中',number(cache?.hits) + ' / ' + number(cache?.misses)],['淘汰 / Evictions',number(cache?.evictions)],
+        ['峰值内存',bytesLabel(cache?.peak_bytes)],['当前驻留内存',bytesLabel(cache?.resident_bytes)],['评分可见块',number(cache?.scored_visible_blocks)]
+      ]);
+      $('tile-performance-json').textContent = json({tile_comparison:comparison,tile_cache:cache,direct_matching_ms:frame.matching_direct?.matching_ms,tiled_matching_ms:frame.matching?.matching_ms,asset_export_ms:frame.matching?.asset_export_ms ?? frame.asset_export_ms});
+    }
+    function coordinates(value) {
+      if (Array.isArray(value) && value.length >= 2 && value.slice(0,2).every(v => Number.isFinite(Number(v)))) return {x:Number(value[0]),y:Number(value[1])};
+      if (value && typeof value === 'object') {
+        for (const [x,y] of [['x','y'],['column','row'],['col','row']]) if (value[x] !== undefined && value[y] !== undefined && Number.isFinite(Number(value[x])) && Number.isFinite(Number(value[y]))) return {x:Number(value[x]),y:Number(value[y])};
+      }
+      if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return {x:value % COLS,y:Math.floor(value/COLS)};
+      return null;
+    }
+    function tileDimensions(template) {
+      const columns = Number(template?.columns), rows = Number(template?.rows), cellPixels = Number(template?.cell_pixels ?? CELL);
+      return Number.isInteger(columns) && columns > 0 && Number.isInteger(rows) && rows > 0 && Number.isInteger(cellPixels) && cellPixels > 0 ? {columns,rows,cellPixels} : null;
+    }
+    function tileInformation(column,row) {
+      const candidate = currentCandidate(), template = candidate?.tile_template, dimensions = tileDimensions(template);
+      if (!dimensions || column < 0 || row < 0 || column >= dimensions.columns || row >= dimensions.rows) return null;
+      const info = template.visible_tiles?.find(tile => Number(tile.column) === column && Number(tile.row) === row);
+      const evidence = candidate.visible_evidence?.tiles?.find(tile => Number(tile.column) === column && Number(tile.row) === row);
+      const expectedBoard = candidate.rect ? {x:Number(candidate.rect.x)+column,y:Number(candidate.rect.y)+row} : null;
+      const board = coordinates(info?.board_cell ?? evidence?.board_cell) ?? expectedBoard;
+      const inBoard = board && Number.isInteger(board.x) && Number.isInteger(board.y) && board.x >= 0 && board.x < COLS && board.y >= 0 && board.y < ROWS;
+      const boardState = inBoard ? state.frame?.production?.cells?.[board.y*COLS+board.x] : undefined;
+      const visible = !!inBoard && boardState !== 'unknown' && (boardState !== undefined || !!info || !!evidence);
+      const activeError = currentStage()?.scoring?.kind === 'visible_foreground' ? evidence?.foreground_color_error : info?.color_error;
+      const scored = visible && typeof activeError === 'number' && Number.isFinite(activeError);
+      const status = !inBoard ? '棋盘外 / 不参与评分' : boardState === 'unknown' ? '未翻开 / 不参与评分' : !visible ? '可见性未知 / 不参与评分' : scored ? '已翻开 / 参与当前评分' : info || evidence ? '已翻开 / 证据不足，评分 N/A' : '已翻开 / 无评分记录';
+      const anchor = coordinates(template.anchor_tile);
+      return {column,row,index:row*dimensions.columns+column+1,board,expectedBoard,boardState,visible,scored,status,info,evidence,isAnchor:anchor?.x === column && anchor?.y === row};
+    }
+    function selectedTile() { return tileInformation(state.tileColumn,state.tileRow); }
+    function renderTiles() {
+      const frame = state.frame, candidate = currentCandidate(), template = candidate?.tile_template, dimensions = tileDimensions(template);
+      const present = !!frame && !!template?.image && !!dimensions;
+      $('tile-inspector').classList.toggle('hidden',!present); $('board-tile-legend').classList.toggle('hidden',!present);
+      if (!present) { state.tileIdentity = null; state.tileRenderToken++; return; }
+      const identity = String(frame.asset_dir ?? frame.id) + ':' + state.candidateIndex + ':' + text(template.id);
+      if (identity !== state.tileIdentity) {
+        const anchor = coordinates(template.anchor_tile);
+        state.tileColumn = anchor && anchor.x >= 0 && anchor.x < dimensions.columns ? anchor.x : 0;
+        state.tileRow = anchor && anchor.y >= 0 && anchor.y < dimensions.rows ? anchor.y : 0;
+        state.tileIdentity = identity;
+      }
+      const select = $('tile-select'); select.replaceChildren();
+      for (let row = 0; row < dimensions.rows; row++) for (let column = 0; column < dimensions.columns; column++) {
+        const tile = tileInformation(column,row);
+        select.append(option(column + ',' + row,'#' + tile.index + ' (' + column + ', ' + row + ')' + (tile.isAnchor ? ' · anchor' : '') + ' · ' + tile.status));
+      }
+      select.value = state.tileColumn + ',' + state.tileRow;
+      for (const opt of $('tile-layer-select').options) opt.disabled = !template[opt.value];
+      if (!template[$('tile-layer-select').value]) $('tile-layer-select').value = 'image';
+      $('tile-template-id').textContent = text(template.id) + ' · ' + dimensions.columns + ' × ' + dimensions.rows + ' tiles · ' + dimensions.cellPixels + ' px/tile';
+      renderTileDetails(); drawTileInspector();
+    }
+    function renderTileDetails() {
+      const tile = selectedTile(), candidate = currentCandidate(), template = candidate?.tile_template;
+      if (!tile || !candidate) return;
+      facts($('tile-facts'),[
+        ['分块 / Tile','#' + tile.index + ' (' + tile.column + ', ' + tile.row + ')' + (tile.isAnchor ? ' · anchor' : '')],['棋盘格',tile.board ? '(' + tile.board.x + ', ' + tile.board.y + ')' : 'N/A'],['观测状态',text(tile.boardState)],['评分参与',tile.status],['核心像素',number(tile.info?.core_pixels)],['预测核心颜色误差',number(tile.info?.color_error)],...evidenceFacts(candidate.visible_evidence ? tile.evidence ?? {} : null,'块 '),['整件位姿',number(candidate.angle) + '° · scale ' + number(candidate.scale) + ' · offset ' + text(candidate.offset)]
+      ]);
+      $('tile-evidence-note').classList.toggle('hidden',!candidate.visible_evidence);
+      const boardAnchor = coordinates(candidate.anchor ?? currentObservation()?.anchor), anchorTile = coordinates(template.anchor_tile);
+      const selectedOrigin = tile.board ? {x:tile.board.x-tile.column,y:tile.board.y-tile.row} : null;
+      const matches = selectedOrigin && candidate.rect && selectedOrigin.x === Number(candidate.rect.x) && selectedOrigin.y === Number(candidate.rect.y);
+      $('tile-mapping').replaceChildren();
+      const selectedLine = document.createElement('div'); selectedLine.textContent = tile.board ? '棋盘 (' + tile.board.x + ', ' + tile.board.y + ') − 块 (' + tile.column + ', ' + tile.row + ') = 起点 (' + selectedOrigin.x + ', ' + selectedOrigin.y + ')' + (matches ? ' ✓ rect' : ' · 与 rect 不一致') : '选中块映射：N/A';
+      const anchorMatches = boardAnchor && anchorTile && candidate.rect && boardAnchor.x-anchorTile.x === Number(candidate.rect.x) && boardAnchor.y-anchorTile.y === Number(candidate.rect.y);
+      const anchorLine = document.createElement('div'); anchorLine.className = 'source'; anchorLine.textContent = boardAnchor && anchorTile ? 'anchor (' + boardAnchor.x + ', ' + boardAnchor.y + ') − anchor tile (' + anchorTile.x + ', ' + anchorTile.y + ') = 起点 (' + (boardAnchor.x-anchorTile.x) + ', ' + (boardAnchor.y-anchorTile.y) + ')' + (anchorMatches ? ' ✓ rect' : ' · 与 rect 不一致') : 'anchor 坐标映射：N/A';
+      $('tile-mapping').append(selectedLine,anchorLine);
+      $('tile-json').textContent = json({template_id:template.id,anchor_tile:template.anchor_tile,selected_tile:tile,rect:candidate.rect,board_anchor:candidate.anchor ?? currentObservation()?.anchor});
+    }
+    function selectTile(column,row) {
+      if (!tileInformation(column,row)) return;
+      state.tileColumn = column; state.tileRow = row; $('tile-select').value = column + ',' + row; renderTileDetails(); drawTileInspector(); drawOverlay();
+    }
+    function hatch(ctx,x,y,width,height) {
+      ctx.save(); ctx.beginPath(); ctx.rect(x,y,width,height); ctx.clip(); ctx.fillStyle = 'rgba(70,145,220,.15)'; ctx.fillRect(x,y,width,height); ctx.strokeStyle = 'rgba(45,116,186,.38)'; ctx.lineWidth = .7;
+      for (let shift = -height; shift < width+height; shift += 7) { ctx.beginPath(); ctx.moveTo(x+shift,y); ctx.lineTo(x+shift+height,y+height); ctx.stroke(); } ctx.restore();
+    }
+    async function drawTileInspector() {
+      const token = ++state.tileRenderToken, frame = state.frame, candidate = currentCandidate(), template = candidate?.tile_template, dimensions = tileDimensions(template), tile = selectedTile();
+      if (!frame || !template || !dimensions || !tile) return;
+      const canvas = $('tile-atlas'), ctx = canvas.getContext('2d'), block = $('tile-block'), blockCtx = block.getContext('2d'), observed = $('tile-board-cell'), observedCtx = observed.getContext('2d');
+      canvas.width = dimensions.columns*TILE_DISPLAY_PIXELS; canvas.height = dimensions.rows*TILE_DISPLAY_PIXELS; block.width = block.height = dimensions.cellPixels; observed.width = observed.height = CELL;
+      $('tile-status').textContent = '读取分块图谱…';
+      try {
+        const layer = await loadImage(assetPath(frame,template[$('tile-layer-select').value]));
+        if (token !== state.tileRenderToken) return;
+        // Atlas already contains the exact pose. Its declared grid starts at pixel (0, 0); no pose transform or alpha crop is applied.
+        const gridWidth = dimensions.columns*dimensions.cellPixels, gridHeight = dimensions.rows*dimensions.cellPixels;
+        const displayScale = TILE_DISPLAY_PIXELS/dimensions.cellPixels;
+        canvas.width = Math.ceil(Math.max(gridWidth,layer.naturalWidth)*displayScale); canvas.height = Math.ceil(Math.max(gridHeight,layer.naturalHeight)*displayScale);
+        ctx.imageSmoothingEnabled = false; ctx.drawImage(layer,0,0,layer.naturalWidth*displayScale,layer.naturalHeight*displayScale);
+        blockCtx.drawImage(layer,tile.column*dimensions.cellPixels,tile.row*dimensions.cellPixels,dimensions.cellPixels,dimensions.cellPixels,0,0,dimensions.cellPixels,dimensions.cellPixels);
+        for (let row = 0; row < dimensions.rows; row++) for (let column = 0; column < dimensions.columns; column++) {
+          const info = tileInformation(column,row), x = column*TILE_DISPLAY_PIXELS, y = row*TILE_DISPLAY_PIXELS, size = TILE_DISPLAY_PIXELS;
+          if (!info.visible) { ctx.fillStyle = 'rgba(70,145,220,.08)'; ctx.fillRect(x,y,size,size); }
+          ctx.strokeStyle = 'rgba(24,41,54,.4)'; ctx.lineWidth = .8; ctx.strokeRect(x+.4,y+.4,size-.8,size-.8);
+          ctx.save(); ctx.font = '11px "Segoe UI","Microsoft YaHei",sans-serif'; ctx.textBaseline = 'top';
+          for (const [label,labelY] of [['#' + info.index + (info.isAnchor ? ' A' : ''),y+5],[column + ',' + row,y+size-20]]) { ctx.fillStyle = 'rgba(255,255,255,.82)'; ctx.fillRect(x+5,labelY,ctx.measureText(label).width+8,15); ctx.fillStyle = '#304a5b'; ctx.fillText(label,x+9,labelY+1); }
+          ctx.restore();
+          if (info.isAnchor) { ctx.strokeStyle = '#d3892c'; ctx.lineWidth = 2; ctx.strokeRect(x+4,y+4,size-8,size-8); }
+          if (column === tile.column && row === tile.row) { ctx.strokeStyle = '#176e91'; ctx.lineWidth = 2; ctx.strokeRect(x+1,y+1,size-2,size-2); }
+        }
+        const board = await loadImage(assetPath(frame,'board.png'));
+        if (token !== state.tileRenderToken) return;
+        if (tile.board && tile.board.x >= 0 && tile.board.x < COLS && tile.board.y >= 0 && tile.board.y < ROWS) observedCtx.drawImage(board,tile.board.x*CELL,tile.board.y*CELL,CELL,CELL,0,0,CELL,CELL);
+        if (!tile.visible) hatch(observedCtx,0,0,CELL,CELL);
+        const sizeWarning = layer.naturalWidth !== gridWidth || layer.naturalHeight !== gridHeight ? ' · 图谱尺寸与声明网格不同：' + layer.naturalWidth + '×' + layer.naturalHeight : '';
+        $('tile-status').textContent = tile.status + ' · 全部 ' + dimensions.columns*dimensions.rows + ' 块均保留' + sizeWarning;
+      } catch (error) { if (token === state.tileRenderToken) $('tile-status').textContent = '分块图像不可用 / Unavailable: ' + error.message; }
+    }
+    function setImage(element,src,onload) {
+      const missing = element.parentElement?.querySelector('.missing');
+      element.onload = () => { element.classList.remove('hidden'); missing?.classList.add('hidden'); onload?.(element); };
+      element.onerror = () => { element.classList.add('hidden'); missing?.classList.remove('hidden'); };
+      if (src) { element.classList.remove('hidden'); missing?.classList.add('hidden'); element.src = src; }
+      else { element.removeAttribute('src'); element.classList.add('hidden'); missing?.classList.remove('hidden'); }
+    }
+    function loadImage(src) {
+      if (!imageCache.has(src)) imageCache.set(src,new Promise((resolve,reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = () => reject(new Error('无法读取 ' + src)); img.src = src; }));
+      return imageCache.get(src);
+    }
+    async function pixels(src) {
+      if (!pixelCache.has(src)) pixelCache.set(src,(async () => { const img = await loadImage(src), canvas = document.createElement('canvas'); canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; const ctx = canvas.getContext('2d',{willReadFrequently:true}); ctx.drawImage(img,0,0); return {width:canvas.width,height:canvas.height,data:ctx.getImageData(0,0,canvas.width,canvas.height).data}; })());
+      return pixelCache.get(src);
+    }
+    function cellVisible(frame,x,y) { return frame.production?.cells?.[Math.floor(y / CELL) * COLS + Math.floor(x / CELL)] !== 'unknown' && frame.production?.cells?.[Math.floor(y / CELL) * COLS + Math.floor(x / CELL)] !== undefined; }
+    function isReliableForeground(r,g,b,x,y) {
+      const localX = x % CELL, localY = y % CELL;
+      if (localX < reliableBorder || localY < reliableBorder || localX >= CELL-reliableBorder || localY >= CELL-reliableBorder) return false;
+      const selectionGreen = g > r + 15 && g > b + 15 && g > 100 && r < 170 && b < 180;
+      return !selectionGreen && (Math.max(r,g,b)-Math.min(r,g,b) > foregroundChroma || Math.max(r,g,b) < foregroundDark);
+    }
+    function rotatedBounds(cut,c,s) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let y = 0; y < cut.height; y++) for (let x = 0; x < cut.width; x++) if (cut.data[(y * cut.width + x) * 4 + 3]) {
+        const xx = c*x + s*y, yy = -s*x + c*y; x0 = Math.min(x0,xx); x1 = Math.max(x1,xx); y0 = Math.min(y0,yy); y1 = Math.max(y1,yy);
+      }
+      return Number.isFinite(x0) ? {x0,y0,width:x1-x0+1,height:y1-y0+1} : null;
+    }
+    async function predictionPixels(frame,candidate) {
+      const rasterized = !!candidate.tile_template?.image;
+      const sourceImage = await pixels(assetPath(frame,rasterized ? candidate.tile_template.image : 'cut-' + candidate.item_index + '.png'));
+      const rect = candidate.rect, left = Number(rect.x)*CELL, top = Number(rect.y)*CELL, right = left+Number(rect.width)*CELL, bottom = top+Number(rect.height)*CELL;
+      const angle = Number(candidate.angle ?? 0)*Math.PI/180, c = Math.cos(angle), s = Math.sin(angle), scale = Number(candidate.scale), offset = candidate.offset ?? [0,0];
+      const bounds = rasterized ? null : rotatedBounds(sourceImage,c,s);
+      if (!rasterized && !bounds) throw new Error('参考透明前景为空 / Empty reference foreground');
+      const ox = rasterized ? 0 : (Number(rect.width)*CELL-bounds.width*scale)/2+Number(offset[0] ?? 0);
+      const oy = rasterized ? 0 : (Number(rect.height)*CELL-bounds.height*scale)/2+Number(offset[1] ?? 0);
+      const data = new Uint8ClampedArray(WIDTH*HEIGHT*4); let count = 0, occluded = 0;
+      for (let y = Math.max(0,Math.floor(top)); y < Math.min(HEIGHT,Math.ceil(bottom)); y++) for (let x = Math.max(0,Math.floor(left)); x < Math.min(WIDTH,Math.ceil(right)); x++) {
+        if (x+.5 < left || x+.5 >= right || y+.5 < top || y+.5 >= bottom) continue;
+        let sx,sy;
+        if (rasterized) {
+          // Pose atlas origin is the declared whole-item grid origin. Copy exported pixels without a second transform.
+          sx = Math.floor(x-left+.5); sy = Math.floor(y-top+.5);
+        } else {
+          // Exact inverse of xx=c*x+s*y, yy=-s*x+c*y. Pixel centres are local to the candidate rect.
+          const u = (x-left+.5-ox)/scale+bounds.x0, v = (y-top+.5-oy)/scale+bounds.y0;
+          sx = Math.round(c*u-s*v); sy = Math.round(s*u+c*v);
+        }
+        if (sx < 0 || sy < 0 || sx >= sourceImage.width || sy >= sourceImage.height) continue;
+        const source = (sy*sourceImage.width+sx)*4, target = (y*WIDTH+x)*4;
+        if (!sourceImage.data[source+3]) continue;
+        data.set(sourceImage.data.subarray(source,source+4),target); count++;
+        if (!cellVisible(frame,x,y)) occluded++;
+      }
+      return {data,count,occluded,rasterized};
+    }
+    async function drawOverlay() {
+      const token = ++state.renderToken, frame = state.frame, candidate = currentCandidate(), canvas = $('board-canvas'), ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,WIDTH,HEIGHT); ctx.fillStyle = '#edf1f3'; ctx.fillRect(0,0,WIDTH,HEIGHT); $('overlay-status').textContent = frame ? '读取证据图像…' : '无样本 / No frame';
+      if (!frame) return;
+      let board;
+      try { board = await loadImage(assetPath(frame,'board.png')); }
+      catch (error) { if (token === state.renderToken) $('overlay-status').textContent = error.message; return; }
+      if (token !== state.renderToken) return;
+      ctx.drawImage(board,0,0,WIDTH,HEIGHT);
+      const showOcclusion = $('toggle-occlusion').checked, opacity = Number($('overlay-opacity').value)/100;
+      let expected = null, observed = null, expectedBad = 0, unexplained = 0, predictedPixels = 0, occludedPixels = 0, rasterized = false, errorText = '';
+      if (candidate?.rect && (candidate.tile_template?.image || Number(candidate.scale) > 0)) {
+        try {
+          const prediction = await predictionPixels(frame,candidate);
+          if (token !== state.renderToken) return;
+          expected = prediction.data; predictedPixels = prediction.count; occludedPixels = prediction.occluded; rasterized = prediction.rasterized;
+          if ($('toggle-mismatch').checked) {
+            const read = document.createElement('canvas'); read.width = WIDTH; read.height = HEIGHT; const readCtx = read.getContext('2d',{willReadFrequently:true}); readCtx.drawImage(board,0,0,WIDTH,HEIGHT); observed = readCtx.getImageData(0,0,WIDTH,HEIGHT).data;
+          }
+        } catch (error) { errorText = error.message; }
+      }
+      if (token !== state.renderToken) return;
+      // Canvas layers never mutate the exported board image or the observed cell states.
+      if (showOcclusion) {
+        for (let row = 0; row < ROWS; row++) for (let col = 0; col < COLS; col++) if (!cellVisible(frame,col*CELL,row*CELL)) {
+          ctx.save(); ctx.beginPath(); ctx.rect(col*CELL,row*CELL,CELL,CELL); ctx.clip(); ctx.fillStyle = 'rgba(70,145,220,.15)'; ctx.fillRect(col*CELL,row*CELL,CELL,CELL); ctx.strokeStyle = 'rgba(45,116,186,.38)'; ctx.lineWidth = .7;
+          for (let shift = -CELL; shift < CELL*2; shift += 7) { ctx.beginPath(); ctx.moveTo(col*CELL+shift,row*CELL); ctx.lineTo(col*CELL+shift+CELL,row*CELL+CELL); ctx.stroke(); } ctx.restore();
+        }
+      }
+      if (expected && $('toggle-overlay').checked) {
+        const layer = ctx.createImageData(WIDTH,HEIGHT);
+        for (let y = 0; y < HEIGHT; y++) for (let x = 0; x < WIDTH; x++) {
+          const i = (y*WIDTH+x)*4; if (!expected[i+3]) continue;
+          const visible = cellVisible(frame,x,y); if (!visible && !showOcclusion) continue;
+          layer.data[i] = visible ? expected[i] : 48; layer.data[i+1] = visible ? expected[i+1] : 134; layer.data[i+2] = visible ? expected[i+2] : 224; layer.data[i+3] = Math.round(expected[i+3]*opacity);
+        }
+        const overlay = document.createElement('canvas'); overlay.width = WIDTH; overlay.height = HEIGHT; overlay.getContext('2d').putImageData(layer,0,0); ctx.drawImage(overlay,0,0);
+      }
+      if (expected && observed && $('toggle-mismatch').checked && candidate?.rect) {
+        const rect = candidate.rect, left = Number(rect.x)*CELL, top = Number(rect.y)*CELL, right = left+Number(rect.width)*CELL, bottom = top+Number(rect.height)*CELL;
+        const layer = ctx.createImageData(WIDTH,HEIGHT);
+        for (let y = Math.max(0,Math.floor(top)); y < Math.min(HEIGHT,Math.ceil(bottom)); y++) for (let x = Math.max(0,Math.floor(left)); x < Math.min(WIDTH,Math.ceil(right)); x++) {
+          if (x+.5 < left || x+.5 >= right || y+.5 < top || y+.5 >= bottom || !cellVisible(frame,x,y)) continue;
+          const i = (y*WIDTH+x)*4;
+          const mismatched = expected[i+3] > 0 && (Math.abs(expected[i]-observed[i])+Math.abs(expected[i+1]-observed[i+1])+Math.abs(expected[i+2]-observed[i+2]))/3 > mismatchError;
+          const unaccounted = !expected[i+3] && isReliableForeground(observed[i],observed[i+1],observed[i+2],x,y);
+          if (mismatched) expectedBad++; if (unaccounted) unexplained++;
+          if (mismatched || unaccounted) { layer.data[i] = 231; layer.data[i+1] = 48; layer.data[i+2] = 58; layer.data[i+3] = 205; }
+        }
+        const mismatch = document.createElement('canvas'); mismatch.width = WIDTH; mismatch.height = HEIGHT; mismatch.getContext('2d').putImageData(layer,0,0); ctx.drawImage(mismatch,0,0);
+      }
+      ctx.strokeStyle = 'rgba(29,54,74,.27)'; ctx.lineWidth = .6; ctx.setLineDash([]);
+      for (let col = 1; col < COLS; col++) { ctx.beginPath(); ctx.moveTo(col*CELL,0); ctx.lineTo(col*CELL,HEIGHT); ctx.stroke(); }
+      for (let row = 1; row < ROWS; row++) { ctx.beginPath(); ctx.moveTo(0,row*CELL); ctx.lineTo(WIDTH,row*CELL); ctx.stroke(); }
+      if (candidate?.rect && $('toggle-footprint').checked) { const rect = candidate.rect; ctx.save(); ctx.strokeStyle = '#bc7621'; ctx.lineWidth = 1.5; ctx.setLineDash([4,2]); ctx.strokeRect(Number(rect.x)*CELL+.75,Number(rect.y)*CELL+.75,Number(rect.width)*CELL-1.5,Number(rect.height)*CELL-1.5); ctx.restore(); }
+      const tile = candidate?.tile_template ? selectedTile() : null;
+      if (tile?.board && tile.board.x >= 0 && tile.board.x < COLS && tile.board.y >= 0 && tile.board.y < ROWS) { ctx.save(); ctx.strokeStyle = '#176e91'; ctx.lineWidth = 2; ctx.setLineDash([]); ctx.strokeRect(tile.board.x*CELL+1,tile.board.y*CELL+1,CELL-2,CELL-2); ctx.restore(); }
+      $('overlay-status').textContent = errorText ? '叠加不可用 / Overlay unavailable: ' + errorText : candidate ? '预测前景 ' + predictedPixels + ' px · 遮挡前景 ' + occludedPixels + ' px' + ($('toggle-mismatch').checked ? ' · 可见区 RGB 差异 ' + expectedBad + ' px · 未解释前景 ' + unexplained + ' px' : '') + (rasterized ? ' · atlas 导出原像素 / exported pixels' : ' · 最近邻展示 / approximate display sampling') : '未选择候选；显示观测与遮挡 / No candidate selected';
+    }
+    $('frame-select').addEventListener('change',() => { const frame = frames.find(entry => String(entry.id) === $('frame-select').value); if (frame) selectFrame(frame); });
+    $('previous-frame').addEventListener('click',() => { const available = filteredFrames(), index = available.indexOf(state.frame); if (index > 0) { $('frame-select').value = String(available[index-1].id); selectFrame(available[index-1]); } });
+    $('next-frame').addEventListener('click',() => { const available = filteredFrames(), index = available.indexOf(state.frame); if (index >= 0 && index+1 < available.length) { $('frame-select').value = String(available[index+1].id); selectFrame(available[index+1]); } });
+    $('stage-select').addEventListener('change',() => { state.stageIndex = Number($('stage-select').value); refreshObservations(); });
+    $('observation-select').addEventListener('change',() => { state.observationId = $('observation-select').value; state.candidateIndex = null; refreshCandidates(); });
+    $('candidate-select').addEventListener('change',() => selectCandidate(Number($('candidate-select').value)));
+    $('item-select').addEventListener('change',() => { state.itemIndex = Number($('item-select').value); renderReference(); });
+    $('tile-select').addEventListener('change',() => { const [column,row] = $('tile-select').value.split(',').map(Number); selectTile(column,row); });
+    $('tile-layer-select').addEventListener('change',drawTileInspector);
+    $('tile-atlas').addEventListener('click',event => {
+      const canvas = $('tile-atlas'), bounds = canvas.getBoundingClientRect(), dimensions = tileDimensions(currentCandidate()?.tile_template);
+      if (!dimensions || !bounds.width || !bounds.height) return;
+      selectTile(Math.floor((event.clientX-bounds.left)*canvas.width/bounds.width/TILE_DISPLAY_PIXELS),Math.floor((event.clientY-bounds.top)*canvas.height/bounds.height/TILE_DISPLAY_PIXELS));
+    });
+    for (const id of ['toggle-overlay','toggle-footprint','toggle-occlusion','toggle-mismatch']) $(id).addEventListener('change',drawOverlay);
+    $('overlay-opacity').addEventListener('input',() => { $('opacity-value').textContent = $('overlay-opacity').value + '%'; drawOverlay(); });
+    renderSummary(); initializeFilters();
+  })();
+  </script>
+</body>
+</html>

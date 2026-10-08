@@ -7,10 +7,12 @@ import {
   type CellState,
   type InferredPlacement,
   type ItemSpec,
+  type ObservedCell,
   type OverlayState,
   type RefreshControlState,
   type Rect,
   type SolverResult,
+  type SolverInput,
   type WindowChoice,
 } from './contracts.ts';
 
@@ -18,6 +20,10 @@ const knownCells = new Set<CellState>([
   'unknown',
   'empty',
   'completed',
+]);
+
+const captureCells = new Set<CellState>([
+  ...knownCells, 'item0', 'item1', 'item2', 'uncertain',
 ]);
 
 export function chooseWindow(choices: WindowChoice[], previous: string): string {
@@ -38,17 +44,69 @@ function itemFitsBoard(width: number, height: number): boolean {
 
 export function validItems(items: ItemSpec[]): boolean {
   return (
+    Array.isArray(items) &&
     items.length === 3 &&
     items.every(
-      ({ width, height, remaining_count }) =>
-        itemFitsBoard(width, height) &&
-        Number.isInteger(remaining_count) &&
-        remaining_count >= 0 &&
-        remaining_count <= 7,
+      (item) =>
+        item !== null && typeof item === 'object' &&
+        itemFitsBoard(item.width, item.height) &&
+        Number.isInteger(item.remaining_count) &&
+        item.remaining_count >= 0 &&
+        item.remaining_count <= 7,
     ) &&
     items.reduce((area, item) => area + item.width * item.height * item.remaining_count, 0) <=
       BOARD_SIZE
   );
+}
+
+/** Multiple observed fragments may describe the same physical item. */
+export function uniquePartialPlacements(state: CaptureState): InferredPlacement[] {
+  const placements = new Map<string, InferredPlacement>();
+  for (const placement of state.partial_placements ?? []) {
+    const { item_index, x, y, width, height } = placement;
+    const key = `${item_index}:${x}:${y}:${width}:${height}`;
+    if (!placements.has(key)) placements.set(key, placement);
+  }
+  return [...placements.values()];
+}
+
+/** Retire located items for solving without changing observed pixels or HUD counts. */
+export function projectSolverSnapshot(state: CaptureState | null): SolverInput | null {
+  if (state === null || !Array.isArray(state.cells) || state.cells.length !== BOARD_SIZE ||
+    !state.cells.every((cell) => captureCells.has(cell)) || !validItems(state.items) ||
+    (state.partial_placements !== undefined && !Array.isArray(state.partial_placements))) return null;
+
+  const rawPlacements = state.partial_placements ?? [];
+  if (!rawPlacements.every(validInferredPlacement)) return null;
+  const cells = [...state.cells];
+  const items = state.items.map((item) => ({ ...item }));
+  const occupied = new Set<number>();
+  for (const placement of uniquePartialPlacements(state)) {
+    const item = items[placement.item_index];
+    const matchingShape = (placement.width === item.width && placement.height === item.height) ||
+      (placement.width === item.height && placement.height === item.width);
+    if (!matchingShape || item.remaining_count < 1) return null;
+    const itemCell = `item${placement.item_index}`;
+    const footprint: number[] = [];
+    let observedFragment = false;
+    for (let y = placement.y; y < placement.y + placement.height; y += 1) {
+      for (let x = placement.x; x < placement.x + placement.width; x += 1) {
+        const index = y * BOARD_COLUMNS + x;
+        const cell = state.cells[index];
+        if (occupied.has(index) || (cell !== 'unknown' && cell !== 'uncertain' && cell !== itemCell)) return null;
+        observedFragment ||= cell === 'uncertain' || cell === itemCell;
+        footprint.push(index);
+      }
+    }
+    if (!observedFragment) return null;
+    for (const index of footprint) {
+      occupied.add(index);
+      cells[index] = 'completed';
+    }
+    item.remaining_count -= 1;
+  }
+  if (!cells.every((cell) => knownCells.has(cell))) return null;
+  return { items, cells: cells as ObservedCell[], candidate_constraints: [] };
 }
 
 export function canCalculate(state: CaptureState | null): state is CaptureState {
@@ -58,9 +116,7 @@ export function canCalculate(state: CaptureState | null): state is CaptureState 
     // Native busy also covers solving after the ready snapshot was captured.
     state.confirmed &&
     state.board !== null &&
-    state.cells.length === BOARD_SIZE &&
-    state.cells.every((cell) => knownCells.has(cell)) &&
-    validItems(state.items)
+    projectSolverSnapshot(state) !== null
   );
 }
 
@@ -171,7 +227,8 @@ export function compareVersion(left: CaptureVersion, right: CaptureVersion): num
 }
 
 function validInferredPlacement(placement: InferredPlacement): boolean {
-  return Number.isInteger(placement.item_index) && placement.item_index >= 0 && placement.item_index < 3 &&
+  return placement !== null && typeof placement === 'object' &&
+    Number.isInteger(placement.item_index) && placement.item_index >= 0 && placement.item_index < 3 &&
     Number.isInteger(placement.x) && placement.x >= 0 &&
     Number.isInteger(placement.y) && placement.y >= 0 &&
     Number.isInteger(placement.width) && placement.width >= 1 &&
@@ -184,12 +241,6 @@ export function validSolverResult(result: SolverResult): boolean {
     result.probs.length === 8 && result.probs.every((row) =>
       row.length === BOARD_SIZE && row.every((prob) => Number.isFinite(prob) && prob >= 0 && prob <= 1),
     ) && Array.isArray(result.inferred_placements) && result.inferred_placements.every(validInferredPlacement);
-}
-
-/** Only the solver can prove a unique placement, including when probabilities are sampled. */
-export function selectedInferredPlacements(result: SolverResult, mask: number): InferredPlacement[] {
-  if (!validSolverResult(result) || !Number.isInteger(mask) || mask < 1 || mask > 7) return [];
-  return result.inferred_placements.filter((placement) => Boolean(mask & (1 << placement.item_index)));
 }
 
 export function mergeOverlayState(

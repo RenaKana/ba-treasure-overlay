@@ -1,5 +1,9 @@
 //! Local Windows OCR. Failed or ambiguous readings remain None.
 use image::{imageops::FilterType, Rgba, RgbaImage};
+use std::{
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 use windows::{
     Globalization::Language,
     Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap},
@@ -12,103 +16,78 @@ pub struct Hud {
     pub remaining: Option<u32>,
     pub round: Option<String>,
     pub counts: [Option<u32>; 3],
+    pub count_errors: [Option<String>; 3],
+    pub error: Option<String>,
 }
 
 const TEXT_HEIGHT: f64 = 80.0;
-const COUNT_COPIES: usize = 3;
+// Shared by all fields; return before the 5-second capture watchdog so the
+// caller can report the OCR failure instead of a missing-frame error.
+const READ_TIMEOUT: Duration = Duration::from_secs(3);
 
-fn isolate_count_plate(crop: &RgbaImage) -> Option<(RgbaImage, Rgba<u8>)> {
-    // The count plate's connected pale background excludes the blue card and
-    // decorative frame. Keep the enclosed glyphs, filling outside each row's
-    // plate boundary with the observed background rather than those edges.
-    let (width, height) = crop.dimensions();
-    let light = |p: &Rgba<u8>| {
-        let min = p[0].min(p[1]).min(p[2]);
-        let max = p[0].max(p[1]).max(p[2]);
-        min >= 235 && max - min <= 25
-    };
-    let mut seen = vec![false; width as usize * height as usize];
-    let mut largest = Vec::new();
-    for y in 0..height {
-        for x in 0..width {
-            let index = (y * width + x) as usize;
-            if seen[index] || !light(crop.get_pixel(x, y)) {
-                continue;
-            }
-            seen[index] = true;
-            let mut component = vec![(x, y)];
-            let mut next = 0;
-            while next < component.len() {
-                let (cx, cy) = component[next];
-                next += 1;
-                for (nx, ny) in [
-                    (cx.wrapping_sub(1), cy),
-                    (cx + 1, cy),
-                    (cx, cy.wrapping_sub(1)),
-                    (cx, cy + 1),
-                ] {
-                    if nx >= width || ny >= height {
-                        continue;
-                    }
-                    let index = (ny * width + nx) as usize;
-                    if !seen[index] && light(crop.get_pixel(nx, ny)) {
-                        seen[index] = true;
-                        component.push((nx, ny));
-                    }
-                }
-            }
-            if component.len() > largest.len() {
-                largest = component;
-            }
+#[derive(Debug, PartialEq, Eq)]
+enum ReadError {
+    Empty,
+    Service,
+    Timeout,
+}
+impl ReadError {
+    fn message(&self) -> &'static str {
+        match self {
+            Self::Empty => "数量裁剪区域无效",
+            Self::Service => "OCR服务读取失败",
+            Self::Timeout => "识别超时，请重试或校正",
         }
     }
-    let left = largest.iter().map(|(x, _)| *x).min()?;
-    let right = largest.iter().map(|(x, _)| *x).max()?;
-    let top = largest.iter().map(|(_, y)| *y).min()?;
-    let bottom = largest.iter().map(|(_, y)| *y).max()?;
-    let mut rows = vec![None::<(u32, u32)>; height as usize];
-    let mut sum = [0_u64; 3];
-    for (x, y) in &largest {
-        let range = rows[*y as usize].get_or_insert((*x, *x));
-        range.0 = range.0.min(*x);
-        range.1 = range.1.max(*x);
-        for channel in 0..3 {
-            sum[channel] += crop.get_pixel(*x, *y)[channel] as u64;
-        }
+}
+fn time_left(deadline: Instant) -> Result<Duration, ReadError> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|left| !left.is_zero())
+        .ok_or(ReadError::Timeout)
+}
+fn wait_for_completion<T>(
+    receiver: mpsc::Receiver<Result<T, ReadError>>,
+    deadline: Instant,
+    cancel: impl FnOnce(),
+) -> Result<T, ReadError> {
+    let result = time_left(deadline).and_then(|left| {
+        receiver.recv_timeout(left).map_err(|error| match error {
+            mpsc::RecvTimeoutError::Timeout => ReadError::Timeout,
+            mpsc::RecvTimeoutError::Disconnected => ReadError::Service,
+        })?
+    });
+    if matches!(result, Err(ReadError::Timeout)) {
+        // A cancellation request is cleanup, not a completion acknowledgement.
+        // Never join the operation after this request.
+        cancel();
     }
-    let count = largest.len() as u64;
-    let background = Rgba([
-        (sum[0] / count) as u8,
-        (sum[1] / count) as u8,
-        (sum[2] / count) as u8,
-        255,
-    ]);
-    let mut plate = RgbaImage::from_pixel(right - left + 1, bottom - top + 1, background);
-    for y in top..=bottom {
-        if let Some((start, end)) = rows[y as usize] {
-            for x in start..=end {
-                plate.put_pixel(x - left, y - top, *crop.get_pixel(x, y));
-            }
-        }
-    }
-    Some((plate, background))
+    result
 }
 
-fn count_ink(crop: &RgbaImage) -> Option<RgbaImage> {
-    let mut ink = crop.enumerate_pixels().filter(|(_, _, p)| {
-        let min = p[0].min(p[1]).min(p[2]);
-        let max = p[0].max(p[1]).max(p[2]);
-        max < 235 && max - min <= 25
-    });
-    let (x, y, _) = ink.next()?;
-    let (mut left, mut right, mut top, mut bottom) = (x, x, y, y);
-    for (x, y, _) in ink {
-        left = left.min(x);
-        right = right.max(x);
-        top = top.min(y);
-        bottom = bottom.max(y);
+fn otsu_threshold(histogram: &[u64; 256]) -> u8 {
+    let total = histogram.iter().sum::<u64>();
+    let sum = histogram
+        .iter()
+        .enumerate()
+        .map(|(v, n)| v as f64 * *n as f64)
+        .sum::<f64>();
+    let (mut below, mut below_sum, mut best, mut threshold) = (0_u64, 0.0, 0.0, 0);
+    for (level, count) in histogram.iter().enumerate() {
+        below += count;
+        below_sum += level as f64 * *count as f64;
+        if below == 0 || below == total {
+            continue;
+        }
+        let above = total - below;
+        let delta = below_sum / below as f64 - (sum - below_sum) / above as f64;
+        let variance = below as f64 * above as f64 * delta * delta;
+        if variance > best {
+            best = variance;
+            threshold = level as u8;
+        }
     }
-    Some(image::imageops::crop_imm(crop, left, top, right - left + 1, bottom - top + 1).to_image())
+    threshold
 }
 
 fn text_at_scale(
@@ -118,36 +97,27 @@ fn text_at_scale(
     r: [f64; 4],
     target_height: Option<f64>,
     contrast: bool,
-    plate: bool,
-) -> Option<String> {
+    deadline: Instant,
+) -> Result<String, ReadError> {
+    time_left(deadline)?;
     let [x, y, w, h] = content;
     let rx = (x + r[0] * w).floor() as u32;
     let ry = (y + r[1] * h).floor() as u32;
     let right = (x + (r[0] + r[2]) * w).ceil() as u32;
     let bottom = (y + (r[1] + r[3]) * h).ceil() as u32;
     if right > frame.width() || bottom > frame.height() || right <= rx || bottom <= ry {
-        return None;
+        return Err(ReadError::Empty);
     }
     let crop = image::imageops::crop_imm(frame, rx, ry, right - rx, bottom - ry).to_image();
-    let (crop, plate_background) = if plate {
-        let (crop, background) = isolate_count_plate(&crop)?;
-        (count_ink(&crop)?, Some(background))
-    } else {
-        (crop, None)
-    };
-    let copies = if plate { COUNT_COPIES as u32 } else { 1 };
     let (rw, rh) = crop.dimensions();
     // Normalize both small and large text, bounded by the OCR engine's real
     // image limit rather than an arbitrary maximum enlargement factor.
-    let max_dimension = OcrEngine::MaxImageDimension().ok()?;
-    // Ordinary views retain their full-crop normalization. After plate/ink
-    // isolation, keep the original ROI's geometric text scale rather than
-    // enlarging its glyphs to the height of the removed background.
-    let source_height = if plate { r[3] * h } else { rh as f64 };
+    let max_dimension = OcrEngine::MaxImageDimension().map_err(|_| ReadError::Service)?;
+    let source_height = rh as f64;
     let requested_scale = target_height.map_or(1.0, |height| height / source_height);
     let requested_padding = target_height.unwrap_or(rh as f64) / 10.0;
     let scale_limit = max_dimension as f64
-        / ((rw as f64 + 2.0 * requested_padding / requested_scale) * copies as f64)
+        / (rw as f64 + 2.0 * requested_padding / requested_scale)
             .max(rh as f64 + 2.0 * requested_padding / requested_scale);
     let scale = requested_scale.min(scale_limit);
     let padding = (requested_padding * scale / requested_scale).floor() as u32;
@@ -165,27 +135,7 @@ fn text_at_scale(
             histogram[gray as usize] += 1;
             *p = Rgba([gray, gray, gray, 255]);
         }
-        let total = data.width() as u64 * data.height() as u64;
-        let sum = histogram
-            .iter()
-            .enumerate()
-            .map(|(v, n)| v as f64 * *n as f64)
-            .sum::<f64>();
-        let (mut below, mut below_sum, mut best, mut threshold) = (0_u64, 0.0, 0.0, 0);
-        for (level, count) in histogram.iter().enumerate() {
-            below += count;
-            below_sum += level as f64 * *count as f64;
-            if below == 0 || below == total {
-                continue;
-            }
-            let above = total - below;
-            let delta = below_sum / below as f64 - (sum - below_sum) / above as f64;
-            let variance = below as f64 * above as f64 * delta * delta;
-            if variance > best {
-                best = variance;
-                threshold = level as u8;
-            }
-        }
+        let threshold = otsu_threshold(&histogram);
         for p in data.pixels_mut() {
             let value = if p[0] > threshold { 255 } else { 0 };
             *p = Rgba([value, value, value, 255]);
@@ -204,13 +154,14 @@ fn text_at_scale(
     }
     let (count, sum) = background_bins
         .into_values()
-        .max_by_key(|(count, _)| *count)?;
-    let background = plate_background.unwrap_or(Rgba([
+        .max_by_key(|(count, _)| *count)
+        .ok_or(ReadError::Empty)?;
+    let background = Rgba([
         (sum[0] / count as u64) as u8,
         (sum[1] / count as u64) as u8,
         (sum[2] / count as u64) as u8,
         255,
-    ]));
+    ]);
     let mut padded = RgbaImage::from_pixel(
         data.width() + 2 * padding,
         data.height() + 2 * padding,
@@ -218,34 +169,43 @@ fn text_at_scale(
     );
     image::imageops::overlay(&mut padded, &data, padding as i64, padding as i64);
     data = padded;
-    if copies > 1 {
-        let mut line = RgbaImage::from_pixel(data.width() * copies, data.height(), background);
-        for copy in 0..copies {
-            image::imageops::overlay(&mut line, &data, (copy * data.width()) as i64, 0);
-        }
-        data = line;
-    }
     for p in data.pixels_mut() {
         p.0.swap(0, 2);
     }
-    let writer = DataWriter::new().ok()?;
-    writer.WriteBytes(data.as_raw()).ok()?;
+    let writer = DataWriter::new().map_err(|_| ReadError::Service)?;
+    writer
+        .WriteBytes(data.as_raw())
+        .map_err(|_| ReadError::Service)?;
     let bitmap = SoftwareBitmap::CreateCopyWithAlphaFromBuffer(
-        &writer.DetachBuffer().ok()?,
+        &writer.DetachBuffer().map_err(|_| ReadError::Service)?,
         BitmapPixelFormat::Bgra8,
         data.width() as i32,
         data.height() as i32,
         BitmapAlphaMode::Ignore,
     )
-    .ok()?;
-    engine
+    .map_err(|_| ReadError::Service)?;
+    time_left(deadline)?;
+    let operation = engine
         .RecognizeAsync(&bitmap)
-        .ok()?
-        .join()
-        .ok()?
-        .Text()
-        .ok()
-        .map(|s| s.to_string())
+        .map_err(|_| ReadError::Service)?;
+    let (sender, receiver) = mpsc::channel();
+    // Each callback owns only this read's resources and completion channel.
+    // Timeout discards the receiver; a late completion cannot publish a Hud.
+    // Cancellation cannot authorize reuse of this engine or channel.
+    let keep_engine = engine.clone();
+    operation
+        .when(move |result| {
+            let _resources = (keep_engine, bitmap);
+            let text = result
+                .and_then(|result| result.Text())
+                .map(|text| text.to_string())
+                .map_err(|_| ReadError::Service);
+            let _ = sender.send(text);
+        })
+        .map_err(|_| ReadError::Service)?;
+    wait_for_completion(receiver, deadline, || {
+        let _ = operation.Cancel();
+    })
 }
 
 fn consensus(readings: &[Option<u32>]) -> Option<u32> {
@@ -257,78 +217,59 @@ fn consensus(readings: &[Option<u32>]) -> Option<u32> {
         .then_some(*first)
 }
 
-fn repeated_counts(text: &str) -> Option<Vec<u32>> {
-    let mut fields = text.split(['×', 'x', 'X']);
-    if !fields.next()?.trim().is_empty() {
-        return None;
-    }
-    let counts = fields
-        .map(|field| {
-            let digits = field
-                .chars()
-                .filter(|c| !c.is_whitespace())
-                .collect::<String>();
-            if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
-                return None;
-            }
-            digits.parse::<u32>().ok()
-        })
-        .collect::<Option<Vec<_>>>()?;
-    (counts.len() == COUNT_COPIES).then_some(counts)
-}
-
 fn number_from_views(
     engine: &OcrEngine,
     frame: &RgbaImage,
     content: [f64; 4],
     views: &[[f64; 4]],
     parse: fn(&str, bool) -> Option<u32>,
-    count_plate: bool,
-) -> Option<u32> {
-    let read_views = |height, contrast, retry| {
+    deadline: Instant,
+) -> Result<Option<u32>, ReadError> {
+    let read_views = |height, contrast, retry| -> Result<Vec<Option<u32>>, ReadError> {
         views
             .iter()
-            .map(|r| {
-                text_at_scale(engine, frame, content, *r, height, contrast, false)
-                    .and_then(|t| parse(&t, retry))
-            })
-            .collect::<Vec<_>>()
+            .map(
+                |r| match text_at_scale(engine, frame, content, *r, height, contrast, deadline) {
+                    Ok(text) => Ok(parse(&text, retry)),
+                    Err(ReadError::Empty) => Ok(None),
+                    Err(error) => Err(error),
+                },
+            )
+            .collect()
     };
-    let readings = read_views(Some(TEXT_HEIGHT), false, false);
+    let readings = read_views(Some(TEXT_HEIGHT), false, false)?;
     if readings.iter().any(Option::is_some) {
-        return consensus(&readings);
+        return Ok(consensus(&readings));
     }
-    // Preserve the native-size retry when a large capture's thin digits were
-    // lost during downsampling. No retry can override conflicting readings.
+    // Keep the existing round/remaining retries, including native large text.
     if views.iter().any(|r| r[3] * content[3] > TEXT_HEIGHT) {
-        let readings = read_views(None, false, false);
+        let readings = read_views(None, false, false)?;
         if readings.iter().any(Option::is_some) {
-            return consensus(&readings);
+            return Ok(consensus(&readings));
         }
     }
     for (height, contrast) in [(60.0, false), (120.0, false), (TEXT_HEIGHT, true)] {
-        let readings = read_views(Some(height), contrast, true);
+        let readings = read_views(Some(height), contrast, true)?;
         if readings.iter().any(Option::is_some) {
-            return consensus(&readings);
+            return Ok(consensus(&readings));
         }
     }
-    if count_plate {
-        // Only after every normal view is unread, repeat the same observed
-        // plate text to give the short token a line. Every copy must retain a
-        // real multiplication prefix and valid digits; all copies and views
-        // must agree. An earlier conflict never reaches this supplement.
-        let readings = views
-            .iter()
-            .filter_map(|r| {
-                text_at_scale(engine, frame, content, *r, Some(TEXT_HEIGHT), false, true)
-                    .and_then(|text| repeated_counts(&text))
-            })
-            .flatten()
-            .map(Some)
-            .collect::<Vec<_>>();
-        return consensus(&readings);
+    // Small fractions such as 44/45 need the established 40px final view.
+    Ok(consensus(&read_views(Some(40.0), false, true)?))
+}
+
+fn count_number(text: &str) -> Option<u32> {
+    let field = text.trim();
+    let field = field.strip_prefix(['×', 'x', 'X']).unwrap_or(field).trim();
+    let digits: String = field
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| if matches!(c, 'L' | 'l') { '1' } else { c })
+        .collect();
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
     }
-    None
+    digits.parse().ok()
 }
 
 pub fn numbers(s: &str) -> Vec<u32> {
@@ -343,11 +284,11 @@ fn remaining_number(s: &str) -> Option<u32> {
     // Join whitespace only inside the fraction payload, after its label.
     // A malformed or competing fraction stays unread instead of selecting
     // the last numeric word (which would silently turn 15 into 5).
-    if s.matches('/').count() != 1 {
+    if s.matches(['/', '／']).count() != 1 {
         return None;
     }
     let payload = s.rsplit([':', '：']).next()?;
-    let (numerator, denominator) = payload.split_once('/')?;
+    let (numerator, denominator) = payload.split_once(['/', '／'])?;
     let parse_field = |field: &str| {
         let digits = field
             .chars()
@@ -381,25 +322,46 @@ pub fn read_in_content(frame: &RgbaImage, content: [f64; 4]) -> Hud {
     {
         return Hud::default();
     }
+    let deadline = Instant::now() + READ_TIMEOUT;
+    // New engine per read: a previously timed-out operation owns no shared
+    // engine or mutex needed by this capture.
     let engine = Language::CreateLanguage(&"zh-Hans".into())
         .ok()
         .and_then(|l| OcrEngine::TryCreateFromLanguage(&l).ok())
         .or_else(|| OcrEngine::TryCreateFromUserProfileLanguages().ok());
     let Some(engine) = engine else {
-        return Hud::default();
+        return Hud {
+            error: Some(ReadError::Service.message().into()),
+            ..Hud::default()
+        };
     };
+    let mut hud = Hud::default();
+    let result = read_fields(&engine, frame, content, deadline, &mut hud);
+    if let Err(error) = result {
+        hud.error = Some(error.message().into());
+    }
+    hud
+}
+
+fn read_fields(
+    engine: &OcrEngine,
+    frame: &RgbaImage,
+    content: [f64; 4],
+    deadline: Instant,
+    hud: &mut Hud,
+) -> Result<(), ReadError> {
     let centered = crate::vision::layout_region(content, crate::vision::LayoutAnchor::Center);
     let bottom = crate::vision::layout_region(content, crate::vision::LayoutAnchor::Bottom);
-    let remaining = number_from_views(
-        &engine,
+    hud.remaining = number_from_views(
+        engine,
         frame,
         centered,
         &[[0.649, 0.222, 0.153, 0.035], [0.736, 0.222, 0.055, 0.035]],
         |text, _| remaining_number(text),
-        false,
-    );
-    let round = number_from_views(
-        &engine,
+        deadline,
+    )?;
+    hud.round = number_from_views(
+        engine,
         frame,
         centered,
         &[[0.651, 0.18, 0.156, 0.046], [0.729, 0.18, 0.050, 0.046]],
@@ -409,67 +371,238 @@ pub fn read_in_content(frame: &RgbaImage, content: [f64; 4]) -> Hud {
                 .copied()
                 .filter(|n| *n > 0 && *n < 10000)
         },
-        false,
-    )
+        deadline,
+    )?
     .map(|n| n.to_string());
-    let counts = [0.153, 0.264, 0.371].map(|x| {
-        // Two bounded views of the same count plate. Windows OCR can miss ×1
-        // when it touches a tight crop. Disagreement is never guessed away.
-        let tight_rect = [x, 0.931, 0.035, 0.045];
-        let roomy_rect = [x - 0.002, 0.928, 0.040, 0.040];
-        number_from_views(
-            &engine,
+    for (index, x) in [0.153, 0.264, 0.371].into_iter().enumerate() {
+        // One fixed count-plate field, containing the entire number. Its optional
+        // multiplication prefix is stripped once; no digits are extracted from labels.
+        let text = match text_at_scale(
+            engine,
             frame,
             bottom,
-            &[tight_rect, roomy_rect],
-            |text, retry| {
-                if retry && !matches!(text.trim_start().chars().next(), Some('×' | 'x' | 'X')) {
-                    return None;
+            [x + 0.002, 0.931, 0.030, 0.037],
+            Some(TEXT_HEIGHT),
+            false,
+            deadline,
+        ) {
+            Ok(text) => text,
+            Err(ReadError::Empty) => {
+                hud.count_errors[index] = Some(ReadError::Empty.message().into());
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        hud.counts[index] = count_number(&text);
+        if hud.counts[index].is_none() {
+            hud.count_errors[index] = Some(
+                if text.trim().is_empty() {
+                    "OCR返回空文本"
+                } else {
+                    "识别结果不是有效数字"
                 }
-                let ns = numbers(text);
-                (ns.len() == 1).then(|| ns[0])
-            },
-            true,
-        )
-    });
-    Hud {
-        remaining,
-        round,
-        counts,
+                .into(),
+            );
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn repeated_count_retry_requires_every_actual_prefix_and_digit() {
-        for (text, expected) in [("× 1 × 1 × 1", 1), ("x2 X 2 ×2", 2), ("×12 ×1 2 ×12", 12)]
-        {
-            let readings = repeated_counts(text)
-                .unwrap()
-                .into_iter()
-                .map(Some)
-                .collect::<Vec<_>>();
-            assert_eq!(consensus(&readings), Some(expected), "{text}");
+    fn pixel_test_engine() -> OcrEngine {
+        unsafe {
+            let _ = windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            );
         }
-        let readings = repeated_counts("×1 ×2 ×1")
-            .unwrap()
-            .into_iter()
-            .map(Some)
-            .collect::<Vec<_>>();
-        assert_eq!(consensus(&readings), None);
+        Language::CreateLanguage(&"zh-Hans".into())
+            .ok()
+            .and_then(|language| OcrEngine::TryCreateFromLanguage(&language).ok())
+            .or_else(|| OcrEngine::TryCreateFromUserProfileLanguages().ok())
+            .expect("local Windows OCR engine")
+    }
+    #[test]
+    fn count_field_requires_the_complete_numeric_payload() {
+        for (text, expected) in [
+            ("1", 1),
+            ("L", 1),
+            ("xl", 1),
+            ("× 12", 12),
+            ("X1 2", 12),
+            ("0", 0),
+            ("4294967295", u32::MAX),
+        ] {
+            assert_eq!(count_number(text), Some(expected), "{text}");
+        }
         for text in [
             "",
-            "xl xl xl",
-            "×1 xl ×1",
-            "×1 ×1",
-            "×1 ×1 ×1 ×1",
-            "第7轮 ×1 ×1 ×1",
-            "×1 ×1 ×?1",
-            "×1 ×1 ×-1",
+            "x",
+            "xx1",
+            "第7轮 ×1",
+            "1/45",
+            "-1",
+            "+1",
+            "1?",
+            "1 ×2",
+            "4294967296",
         ] {
-            assert_eq!(repeated_counts(text), None, "{text}");
+            assert_eq!(count_number(text), None, "{text}");
+        }
+    }
+    #[test]
+    fn timeout_releases_caller_and_late_results_are_isolated() {
+        let (old_sender, old_receiver) = mpsc::channel::<Result<u32, ReadError>>();
+        let start = Instant::now();
+        let cancelled = std::cell::Cell::new(false);
+        assert_eq!(
+            wait_for_completion(old_receiver, start + Duration::from_millis(20), || {
+                cancelled.set(true)
+            }),
+            Err(ReadError::Timeout)
+        );
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(cancelled.get()); // Model Cancel acknowledged while old operation stays pending.
+        let (new_sender, new_receiver) = mpsc::channel();
+        new_sender.send(Ok(4)).unwrap();
+        assert!(old_sender.send(Ok(1)).is_err());
+        assert_eq!(
+            wait_for_completion(
+                new_receiver,
+                Instant::now() + Duration::from_secs(1),
+                || panic!("successful read cancelled")
+            ),
+            Ok(4)
+        );
+        assert_eq!(time_left(start), Err(ReadError::Timeout));
+    }
+    #[test]
+    fn expired_read_stops_fields_and_a_new_read_succeeds() {
+        let engine = pixel_test_engine();
+        let frame = image::open(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/vision-pc-user-20261008-remaining22-third-one.png"
+        ))
+        .unwrap()
+        .to_rgba8();
+        let content = crate::vision::locate_content(&frame).unwrap();
+        let mut expired = Hud::default();
+        assert_eq!(
+            read_fields(&engine, &frame, content, Instant::now(), &mut expired),
+            Err(ReadError::Timeout)
+        );
+        assert_eq!(expired.remaining, None);
+        assert_eq!(expired.round, None);
+        assert_eq!(expired.counts, [None; 3]);
+        let (old_sender, old_receiver) = mpsc::channel::<Result<String, ReadError>>();
+        assert_eq!(
+            wait_for_completion(
+                old_receiver,
+                Instant::now() + Duration::from_millis(10),
+                || {}
+            ),
+            Err(ReadError::Timeout)
+        );
+        // The simulated operation ignores cancellation and completes only after
+        // another real Windows OCR read. It cannot reach that read's Hud.
+        let current = read(&frame);
+        assert!(old_sender.send(Ok("99".into())).is_err());
+        assert_eq!(current.remaining, Some(22));
+        assert_eq!(current.round.as_deref(), Some("6"));
+        assert_eq!(current.counts, [Some(0), Some(4), Some(1)]);
+        assert_eq!(current.error, None);
+    }
+    #[test]
+    fn complete_multi_digit_field_and_empty_field_keep_other_hud_values() {
+        let _engine = pixel_test_engine();
+        let mut frame = image::open(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/vision-pc-user-20261008-remaining22-third-one.png"
+        ))
+        .unwrap()
+        .to_rgba8();
+        // Derived-pixel fixture: form x11 from the real third card's x1. This
+        // tests a complete multi-digit field, not a real captured inventory of 11.
+        let prefix = image::imageops::crop_imm(&frame, 487, 722, 9, 16).to_image();
+        let digit = image::imageops::crop_imm(&frame, 496, 722, 10, 16).to_image();
+        let background = *frame.get_pixel(510, 722);
+        for y in 720..740 {
+            for x in 481..515 {
+                frame.put_pixel(x, y, background);
+            }
+        }
+        image::imageops::overlay(&mut frame, &prefix, 482, 722);
+        image::imageops::overlay(&mut frame, &digit, 492, 722);
+        image::imageops::overlay(&mut frame, &digit, 502, 722);
+        let hud = read(&frame);
+        assert_eq!(hud.remaining, Some(22), "{hud:?}");
+        assert_eq!(hud.round.as_deref(), Some("6"), "{hud:?}");
+        assert_eq!(hud.counts, [Some(0), Some(4), Some(11)], "{hud:?}");
+        let bottom = crate::vision::layout_region(
+            crate::vision::locate_content(&frame).unwrap(),
+            crate::vision::LayoutAnchor::Bottom,
+        );
+        for y in (bottom[1] + 0.931 * bottom[3]).floor() as u32
+            ..(bottom[1] + 0.968 * bottom[3]).ceil() as u32
+        {
+            for x in (bottom[0] + 0.155 * bottom[2]).floor() as u32
+                ..(bottom[0] + 0.185 * bottom[2]).ceil() as u32
+            {
+                frame.put_pixel(x, y, background);
+            }
+        }
+        let hud = read(&frame);
+        assert_eq!(hud.remaining, Some(22), "{hud:?}");
+        assert_eq!(hud.round.as_deref(), Some("6"), "{hud:?}");
+        assert_eq!(hud.counts, [None, Some(4), Some(11)], "{hud:?}");
+        assert_eq!(hud.count_errors[0].as_deref(), Some("OCR返回空文本"));
+        assert_eq!(hud.error, None);
+    }
+    #[test]
+    fn real_pc_failed_quantity_frames_read_complete_hud() {
+        let _engine = pixel_test_engine();
+        for (name, round, remaining, counts) in [
+            (
+                "vision-pc-user-20261006-count-one-window.png",
+                "1",
+                19,
+                [0, 1, 2],
+            ),
+            (
+                "vision-pc-user-20261008-count-one-round6.png",
+                "6",
+                45,
+                [1, 4, 3],
+            ),
+            (
+                "vision-pc-user-20261008-remaining22-third-one.png",
+                "6",
+                22,
+                [0, 4, 1],
+            ),
+            (
+                "vision-pc-global-fullscreen-initial.png",
+                "2",
+                45,
+                [1, 2, 5],
+            ),
+        ] {
+            let frame = image::open(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures")
+                    .join(name),
+            )
+            .unwrap()
+            .to_rgba8();
+            let hud = read(&frame);
+            eprintln!("{name}: {hud:?}");
+            assert_eq!(hud.remaining, Some(remaining), "{name}: {hud:?}");
+            assert_eq!(hud.round.as_deref(), Some(round), "{name}: {hud:?}");
+            assert_eq!(hud.counts, counts.map(Some), "{name}: {hud:?}");
+            assert_eq!(hud.count_errors, [None, None, None], "{name}");
+            assert_eq!(hud.error, None, "{name}");
         }
     }
     #[test]
@@ -515,6 +648,7 @@ mod tests {
         );
         assert_eq!(remaining_number("0 / 45"), Some(0));
         assert_eq!(remaining_number("45 / 45"), Some(45));
+        assert_eq!(remaining_number("： 44 ／ 45"), Some(44));
     }
     #[test]
     fn remaining_fraction_rejects_invalid_or_ambiguous_fields() {
@@ -524,6 +658,8 @@ mod tests {
             "46 / 45",
             "15 / 45 / 45",
             "15 / 45：5 / 45",
+            "15 / 45：5 ／ 45",
+            "： ／ 45",
             "1?5 / 45",
             "15 / 4?5",
             "+15 / 45",
@@ -541,6 +677,20 @@ mod tests {
         assert_eq!(consensus(&[Some(15), Some(15)]), Some(15));
         assert_eq!(consensus(&[Some(15), Some(5)]), None);
         assert_eq!(consensus(&[None, None]), None);
+    }
+    #[test]
+    fn real_round6_remaining44_keeps_fraction_and_partial_board_consistent() {
+        let _engine = pixel_test_engine();
+        let frame = image::open(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/vision-pc-user-20261008-remaining44-partial.png"
+        ))
+        .unwrap()
+        .to_rgba8();
+        let hud = read(&frame);
+        assert_eq!(hud.remaining, Some(44));
+        assert_eq!(hud.round.as_deref(), Some("6"));
+        assert_eq!(hud.counts, [Some(1), Some(4), Some(3)]);
     }
     #[test]
     fn invalid_content_does_not_read_or_guess_hud() {
